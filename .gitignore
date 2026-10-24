@@ -1,0 +1,70 @@
+# ---------- Node / 依赖 ----------
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.pnpm-store/
+
+# ---------- 构建产物 ----------
+dist/
+dist-electron/
+out/
+release/
+build/*.exe
+build/*.msi
+build/*.dmg
+build/*.AppImage
+*.tsbuildinfo
+.vite/
+.cache/
+
+# ---------- 测试产物 ----------
+coverage/
+tests/**/output/
+tests/**/*.actual.*
+tests/**/*.expected.log
+
+# ---------- 用户真实样片（体积大，不入库） ----------
+tests/fixtures/*
+!tests/fixtures/README.md
+
+# ---------- 媒体与临时文件（防止误提交） ----------
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.avi
+*.flv
+*.wmv
+*.m4v
+*.mp3
+*.m4a
+*.flac
+*.opus
+*.wav
+*.part.*
+*.tmp
+
+# ---------- 日志 / 缓存 ----------
+*.log
+logs/
+.cache-loader/
+.electron/
+
+# ---------- 环境与密钥 ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+credentials.*
+
+# ---------- 编辑器 / 系统 ----------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
