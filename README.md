@@ -49,6 +49,7 @@ npm run dev          # 开发模式（热更新）
 | `npm run typecheck` | 主进程 + 渲染层 TypeScript 严格检查 |
 | `npm test` | Vitest 单元测试（估算 / 校验 / 参数构造 / 命名 / ffprobe 解析等） |
 | `npm run test:integration` | 可选集成测试，需要 `tests/fixtures/` 里有真实样片；无样片自动跳过 |
+| `npm run test:matrix` | 容器 × 编码全矩阵验证（自动生成合成素材，逐个编码并完整解码检查） |
 | `npm run build` | 构建三端产物到 `out/` |
 | `npm run start` | 预览构建产物 |
 | `npm run build:win` | 打包便携 exe + NSIS 安装包（输出到 `release/`） |
@@ -74,7 +75,12 @@ npm run dev          # 开发模式（热更新）
 
 断言包括：输出可被 ffprobe 读取、分辨率/帧率不高于源、时长误差 ≤ 0.5s、完整解码无错误、目标体积误差 ≤ ±12%、中文与空格路径、取消后无 `.part` 残留。
 
-### 4.3 手工验收
+### 4.3 容器 × 编码矩阵（`npm run test:matrix`）
+
+自动生成 2 秒合成素材，枚举 `shared/presets` 中所有**合法**组合（当前 31 个），逐个编码并做
+`ffmpeg -v error -i out -f null -` 完整解码检查。任何组合失败都会让脚本以非零码退出。
+
+### 4.4 手工验收
 
 见 [docs/manual-checklist.md](docs/manual-checklist.md)。
 
@@ -189,6 +195,7 @@ git reset --hard v0.1.0                             # 回到发布版本
 - **HDR 不做色调映射**：仅检测并提示，输出可能偏色。
 - **VFR 源**：改帧率时转 CFR，可能轻微改变时间轴；不改帧率时保留原时间戳。
 - **同 CRF 下硬件编码画质略低**：界面提供一键关闭硬件加速。
+- **MOV 容器限制（实测）**：FFmpeg 的 mov muxer 不接受 FLAC 音轨与 AV1 视频，因此 MOV 仅提供 **H.264 / HEVC + AAC / MP3**；需要 FLAC 或 AV1 请改用 MP4 / MKV。
 - **exe 图标**：默认打包不写 exe 图标（见 §5 原因），安装器图标仍生效。
 - **测试样片不入库**：集成测试需要本地样片，缺失时自动跳过。
 - **仅验证 Windows**：代码未硬编码平台特有 API，但 macOS / Linux 未做实测。

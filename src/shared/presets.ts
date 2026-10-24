@@ -53,10 +53,12 @@ export const CONTAINER_INFO: Record<
   mov: {
     label: 'MOV',
     extension: 'mov',
-    video: ['h264', 'hevc', 'av1'],
-    audio: ['aac', 'mp3', 'flac'],
+    // 实测（ffmpeg 2026-07-02 gyan essentials）：mov muxer 不接受 FLAC 音轨与 AV1 视频，
+    // 因此这里只声明实际可用的组合，避免用户配置出必定失败的参数。
+    video: ['h264', 'hevc'],
+    audio: ['aac', 'mp3'],
     faststart: true,
-    note: '苹果生态常用，参数接近 MP4'
+    note: '苹果生态常用；仅支持 H.264 / HEVC + AAC / MP3'
   }
 }
 

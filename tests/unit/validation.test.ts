@@ -65,6 +65,29 @@ describe('容器与编码兼容矩阵', () => {
     expect(validateJobSpec(spec, {}).ok).toBe(true)
   })
 
+  it('MOV 拒绝 FLAC 音频（ffmpeg mov muxer 限制）', () => {
+    const spec = makeSpec({ container: 'mov', audio: { ...makeSpec().audio, codec: 'flac', bitrateKbps: null } })
+    expect(codes('errors', spec)).toContain('CONTAINER_AUDIO_INCOMPATIBLE')
+  })
+
+  it('MOV 拒绝 AV1 视频', () => {
+    const spec = makeSpec({
+      container: 'mov',
+      video: { ...makeSpec().video, codec: 'av1', encoder: 'libaom-av1', crf: 30 }
+    })
+    expect(codes('errors', spec)).toContain('CONTAINER_VIDEO_INCOMPATIBLE')
+  })
+
+  it('MOV 支持 H.264 + AAC', () => {
+    const spec = makeSpec({ container: 'mov' })
+    expect(validateJobSpec(spec).ok).toBe(true)
+  })
+
+  it('MP4 仍支持 H.264 + FLAC', () => {
+    const spec = makeSpec({ audio: { ...makeSpec().audio, codec: 'flac', bitrateKbps: null } })
+    expect(validateJobSpec(spec).ok).toBe(true)
+  })
+
   it('复制音轨时校验源编码是否被容器容纳', () => {
     const spec = makeSpec({
       container: 'webm',

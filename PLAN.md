@@ -187,7 +187,7 @@ ffmpeg -hide_banner -nostdin -y \
 | 容器 | 视频 | 音频 | 备注 |
 | --- | --- | --- | --- |
 | MP4 | H.264 / HEVC / AV1 | AAC / MP3 / FLAC(实验) | HEVC 加 `-tag:v hvc1`；加 `-movflags +faststart`；不支持 Opus/Vorbis |
-| MOV | H.264 / HEVC / AV1 | AAC / MP3 / FLAC | 同上（不加 faststart 也可，保留） |
+| MOV | H.264 / HEVC | AAC / MP3 | 同上；**实测 ffmpeg mov muxer 不支持 FLAC / AV1，故收窄**（见 §13 实施记录） |
 | MKV | 全部 | 全部（含 Opus/FLAC） | 默认字幕/章节复制 |
 | WebM | VP9 / AV1 | Opus / Vorbis | 禁止 H.264/HEVC/AAC；明确报错并建议换 MKV |
 
@@ -513,4 +513,15 @@ Thumbs.db
 2. 真实样片由用户在本机 WebGUI 手工测试，不提供固定 fixture；`tests/fixtures/` 仅保留占位说明，集成脚本在无样片时跳过。
 3. 应用名 **Shrinkly**、界面**简体中文**、**深色主题**。
 
-执行顺序：初始化 Git → 提交本计划 → 创建 `feat/mvp-converter` 分支 → 按第 9.2 顺序实现并逐步提交。**当前阶段仅完成仓库初始化，未开始编码。**
+执行顺序：初始化 Git → 提交本计划 → 创建 `feat/mvp-converter` 分支 → 按第 9.2 顺序实现并逐步提交。
+
+---
+
+## 13. 实施记录（2026-10-24）
+
+- **已完成**：§9.2 的 1–12 全部落地，`feat/mvp-converter` 以 `--no-ff` 合并回 `main` 并打 `v0.1.0` 标签。
+- **单元测试**：126 条全绿（estimate / validation / args / paths / probe / capabilities）。
+- **集成测试**：合成样片上 13 项全绿（含目标体积 ±12%、中文空格路径、取消后无 `.part` 残留）。
+- **容器矩阵实测修正**：MOV 实际只支持 H.264 / HEVC + AAC / MP3；FLAC 仅 MP4 / MKV 可用；AV1 仅 MP4 / MKV / WebM 可用。
+- **打包**：`npm run build:win` 产出便携版与 NSIS 安装包；因普通用户无法创建符号链接，默认关闭 rcedit（`build:win:iconed` 需管理员/开发者模式）。
+- **文档**：新增 `README.md`、`docs/manual-checklist.md`、`docs/screenshots/overview.png`。

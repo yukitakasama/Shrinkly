@@ -20,7 +20,8 @@
     "test:watch": "vitest",
     "test:integration": "node tests/integration/run.mjs",
     "build:win": "npm run build && electron-builder --win --publish never",
-    "build:win:iconed": "npm run build && electron-builder --win --publish never -c.win.signAndEditExecutable=true"
+    "build:win:iconed": "npm run build && electron-builder --win --publish never -c.win.signAndEditExecutable=true",
+    "test:matrix": "node node_modules/vite-node/vite-node.mjs tests/integration/matrix.ts"
   },
   "dependencies": {
     "zod": "^3.25.76",
