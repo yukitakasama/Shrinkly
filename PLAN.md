@@ -519,6 +519,11 @@ Thumbs.db
 
 ## 13. 实施记录（2026-10-24）
 
+> **交付形态变更（本次需求，已实施）**：用户明确要求「不要原生界面，双击 exe 在浏览器里用 WebGUI」。
+> 因此「拖拽导入」改为服务端文件浏览器选择；界面从 Electron 渲染层改为浏览器页面；
+> 业务逻辑下沉为**不依赖 Electron 的本地 HTTP 服务**（`src/server`），Electron 仅保留为无窗口托盘外壳与打包载体（`src/main/index.ts`）。
+> 新增 token 鉴权 + 仅监听 127.0.0.1 + Host 校验 + CSP。对应版本 `v0.2.0`。
+
 - **已完成**：§9.2 的 1–12 全部落地，`feat/mvp-converter` 以 `--no-ff` 合并回 `main` 并打 `v0.1.0` 标签。
 - **单元测试**：126 条全绿（estimate / validation / args / paths / probe / capabilities）。
 - **集成测试**：合成样片上 13 项全绿（含目标体积 ±12%、中文空格路径、取消后无 `.part` 残留）。
