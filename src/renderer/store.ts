@@ -87,6 +87,8 @@ interface AppStore {
   pickOutputDirectory: () => Promise<void>
   importPaths: (paths: string[]) => Promise<void>
   refreshEditor: () => Promise<void>
+  /** 防抖版的 refreshEditor（滑块拖动时使用）。 */
+  scheduleRefresh: () => void
   startQueue: () => Promise<void>
   cancelJob: (id: string) => Promise<void>
   cancelAll: () => Promise<void>
@@ -115,7 +117,19 @@ function editorFieldsFor(job: JobRecord | null): Partial<AppStore> {
   }
 }
 
+/** 估算重算的防抖间隔（毫秒），避免滑块拖动时刷爆 IPC。 */
+const REFRESH_DEBOUNCE_MS = 80
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+
 export const useAppStore = create<AppStore>((set, get) => ({
+  /** 防抖版本：滑块 / 输入框连续变化时只算最后一次。 */
+  scheduleRefresh() {
+    if (refreshTimer) clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null
+      void get().refreshEditor()
+    }, REFRESH_DEBOUNCE_MS)
+  },
   status: null,
   jobs: [],
   selectedId: null,
@@ -199,32 +213,32 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setQuality(quality) {
     set({ quality })
-    void get().refreshEditor()
+    get().scheduleRefresh()
   },
 
   setTarget(enabled, mb) {
     set({ targetEnabled: enabled, ...(mb !== undefined ? { targetMB: mb } : {}) })
-    void get().refreshEditor()
+    get().scheduleRefresh()
   },
 
   setContainer(container) {
     set({ container })
-    void get().refreshEditor()
+    get().scheduleRefresh()
   },
 
   setVideoCodec(videoCodec) {
     set({ videoCodec })
-    void get().refreshEditor()
+    get().scheduleRefresh()
   },
 
   setAudioCodec(audioCodec) {
     set({ audioCodec })
-    void get().refreshEditor()
+    get().scheduleRefresh()
   },
 
   setAudioMode(audioMode) {
     set({ audioMode })
-    void get().refreshEditor()
+    get().scheduleRefresh()
   },
 
   setAdvanced(patch) {
@@ -256,7 +270,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         extraArgsText: ''
       }
     set({ advanced: { ...base, ...patch } })
-    void get().refreshEditor()
+    get().scheduleRefresh()
   },
 
   resetAdvanced() {
@@ -425,6 +439,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   async startQueue() {
+    if (refreshTimer) {
+      clearTimeout(refreshTimer)
+      refreshTimer = null
+    }
     const job = selectedJob(get())
     if (job && (job.status === 'queued' || job.status === 'preparing')) {
       await get().refreshEditor()
