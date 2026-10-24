@@ -114,7 +114,7 @@ export function selectResolution(params: {
 
   // 当前码率足以支撑源分辨率时直接保持，避免无意义重采样。
   if (bitrateBps >= requiredBitrateBps(width, height, frameRate, codec)) {
-    return keepSource(`${formatMbps(videoBitrateKbps)} 足以支撑 ${describeSize(width, height)}${Math.round(frameRate)}fps，保持源分辨率`)
+    return keepSource(`${formatMbps(videoBitrateKbps)} 足以支撑 ${describeSize(width, height)}@${Math.round(frameRate)}fps，保持源分辨率`)
   }
 
   const candidates = RESOLUTION_HEIGHTS.filter((candidate) => candidate < shortSide)
@@ -129,7 +129,7 @@ export function selectResolution(params: {
         width: scaled.width,
         height: scaled.height,
         changed: true,
-        reason: `码率 ${formatMbps(videoBitrateKbps)} 不足以支撑 ${describeSize(width, height)}${Math.round(frameRate)}fps，降到 ${describeSize(scaled.width, scaled.height)}`
+        reason: `码率 ${formatMbps(videoBitrateKbps)} 不足以支撑 ${describeSize(width, height)}@${Math.round(frameRate)}fps，降到 ${describeSize(scaled.width, scaled.height)}`
       }
     }
   }
