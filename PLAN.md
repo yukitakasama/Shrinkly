@@ -530,3 +530,9 @@ Thumbs.db
 - **容器矩阵实测修正**：MOV 实际只支持 H.264 / HEVC + AAC / MP3；FLAC 仅 MP4 / MKV 可用；AV1 仅 MP4 / MKV / WebM 可用。
 - **打包**：`npm run build:win` 产出便携版与 NSIS 安装包；因普通用户无法创建符号链接，默认关闭 rcedit（`build:win:iconed` 需管理员/开发者模式）。
 - **文档**：新增 `README.md`、`docs/manual-checklist.md`、`docs/screenshots/overview.png`。
+
+> **交付形态回退（2026-10-24 21:30）**：用户反馈浏览器 WebGUI 的观感与交互不如原生窗口，
+> 决定**恢复 Electron 原生窗口**为默认形态，并保留 WebUI 作为前端自动化测试入口。
+> 实现方式：界面仍是同一份 React + 本地 HTTP（REST + SSE），原生窗口直接加载 `http://127.0.0.1:<port>/?token=…`；
+> preload 仅暴露拖拽取路径 / 系统文件目录对话框 / 资源管理器定位；`--web` / `SHRINKLY_WEB=1` 进入浏览器测试模式
+> （`SHRINKLY_NO_BROWSER=1` 只启动服务）。窗口模式不做 GPU 禁用，恢复原生渲染性能。

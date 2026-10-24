@@ -22,14 +22,20 @@ function devCspPlugin(): Plugin {
   }
 }
 
-/** 开发模式下浏览器访问 vite dev server，API 通过代理转发到本地服务。 */
+/** 开发模式下窗口 / 浏览器访问 vite dev server，API 通过代理转发到本地服务。 */
 const devApiPort = process.env['SHRINKLY_API_PORT'] ?? '12800'
 
 export default defineConfig({
-  // 主进程：本地 HTTP 服务 + 托盘外壳（无原生窗口），依赖全部打进 bundle。
+  // 主进程：原生窗口 / Web 测试模式外壳，依赖全部打进 bundle。
   main: {
     build: {
       rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } }
+    }
+  },
+  // preload：只暴露原生文件对话框与拖拽取路径。
+  preload: {
+    build: {
+      rollupOptions: { input: { index: resolve(__dirname, 'src/preload/index.ts') } }
     }
   },
   renderer: {

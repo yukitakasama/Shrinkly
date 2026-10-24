@@ -1,13 +1,20 @@
 import { useState } from 'react'
-import { pickDirectory, pickFiles } from '../lib/picker'
+import { isNativeWindow, pickDirectory, pickFiles } from '../lib/picker'
 import { useAppStore } from '../store'
+import DropZone from './DropZone'
 
-/** 导入入口：浏览器里无法拖入本地路径，因此改为「浏览选择」或直接粘贴路径。 */
+/**
+ * 导入入口。
+ *
+ * 原生窗口：拖拽 / 点击选择文件 + 系统文件夹对话框 + 粘贴路径；
+ * 浏览器测试模式：服务端文件浏览器 + 粘贴路径。
+ */
 export default function ImportBar(): React.JSX.Element {
   const importPaths = useAppStore((state) => state.importPaths)
   const importing = useAppStore((state) => state.importing)
   const [manual, setManual] = useState('')
   const [showManual, setShowManual] = useState(false)
+  const native = isNativeWindow()
 
   const addFiles = async (): Promise<void> => {
     const files = await pickFiles()
@@ -21,10 +28,13 @@ export default function ImportBar(): React.JSX.Element {
 
   return (
     <div className="import-bar">
+      {native && <DropZone />}
       <div className="import-actions">
-        <button type="button" className="primary" onClick={() => void addFiles()} disabled={importing}>
-          {importing ? '正在读取…' : '添加视频文件'}
-        </button>
+        {!native && (
+          <button type="button" className="primary" onClick={() => void addFiles()} disabled={importing}>
+            {importing ? '正在读取…' : '添加视频文件'}
+          </button>
+        )}
         <button type="button" className="ghost" onClick={() => void addFolder()} disabled={importing}>
           添加文件夹
         </button>
@@ -32,7 +42,11 @@ export default function ImportBar(): React.JSX.Element {
           {showManual ? '收起路径输入' : '粘贴路径'}
         </button>
       </div>
-      <p className="hint">在服务端文件浏览器中选取，支持的容器：MP4 / MKV / WebM / MOV 等</p>
+      <p className="hint">
+        {native
+          ? '可直接把文件或文件夹拖进窗口；支持 MP4 / MKV / WebM / MOV 等'
+          : '在服务端文件浏览器中选取，支持的容器：MP4 / MKV / WebM / MOV 等'}
+      </p>
 
       {showManual && (
         <form

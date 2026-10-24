@@ -2,9 +2,9 @@
 
 基于 FFmpeg 的 Windows 视频压缩 / 格式转换工具。**一键压缩**（0–100 质量滑块）+ **目标体积**模式，支持批量队列、实时估算与命令预览。
 
-> **形态**：双击 exe → 本机启动 HTTP 服务 → 自动用系统默认浏览器打开 WebGUI。
-> 没有原生应用窗口（Electron 只作为无窗口的托盘外壳与打包载体），关掉浏览器不影响服务，托盘里可重新打开界面。
-> 技术栈：Node HTTP 服务 + React + TypeScript；界面与估算逻辑共用同一份纯函数。
+> **形态**：双击 exe → 打开 **Electron 原生窗口**，支持拖拽导入、系统文件 / 目录对话框与托盘。
+> 界面仍由本机 HTTP 服务（`127.0.0.1`）承载，因此同一份界面也可通过 `--web` 在浏览器中打开，用于前端自动化测试。
+> 技术栈：Electron + 本地 HTTP 服务 + React + TypeScript；界面与估算逻辑共用同一份纯函数。
 
 ![Shrinkly WebGUI：队列、源信息、转换结果与实时日志](docs/screenshots/webgui.png)
 
@@ -64,8 +64,8 @@ Vite 会把 `/api` 代理到本地服务，因此热更新与接口调试都能�
 
 | 脚本 | 作用 |
 | --- | --- |
-| `npm run dev` | Vite 开发服务器 + 本地 API + 自动打开浏览器 |
-| `npm run build` | 构建服务端 bundle 与 WebGUI 到 `out/` |
+| `npm run dev` | Vite 开发服务器 + 本地 API + 原生窗口 |
+| `npm run build` | 构建主进程 / preload / 界面到 `out/` |
 | `npm start` | 用构建产物启动（等价于打包后的运行方式） |
 | `npm run typecheck` | 服务端 + 渲染层 TypeScript 严格检查 |
 | `npm test` | Vitest 单元测试 |
@@ -112,7 +112,7 @@ npm run build:win
 
 产出（`release/`）：
 
-- `Shrinkly-0.2.0-portable.exe`：便携版，双击即启动服务并打开浏览器；
+- `Shrinkly-0.2.0-portable.exe`：便携版，双击即打开原生窗口（`--web` 可改为浏览器）；
 - `Shrinkly-0.2.0-setup.exe`：NSIS 安装包（可选安装目录、创建桌面与开始菜单快捷方式）。
 
 ### 关于 exe 图标
@@ -131,7 +131,12 @@ npm run build:win
 
 ```
 src/
-├─ main/index.ts            Electron 托盘外壳：启动服务 + 打开浏览器 + 托盘菜单（无原生窗口）
+├─ main/
+│  ├─ index.ts              Electron 外壳：原生窗口 / --web 测试模式 + 托盘 + 单实例
+│  ├─ native.ts             原生文件 / 目录对话框与资源管理器定位
+│  ├─ browser.ts            --web 模式下打开系统浏览器（含回退与超时）
+│  └─ ui-mode.ts            UI 模式解析（window / web，可单测）
+├─ preload/index.ts         只暴露原生交互（拖拽取路径 / 选择框 / 定位）
 ├─ server/                  本地服务（纯 Node，不依赖 Electron，可单独跑）
 │  ├─ http/app.ts           HTTP 服务装配：token 鉴权、静态资源、SSE、Host 校验
 │  ├─ http/router.ts        极简路由 + SSE Hub + 统一错误映射
@@ -145,7 +150,8 @@ src/
 │  └─ logger.ts             文件日志（轮转）+ 内存环形缓冲
 ├─ shared/                  服务端与浏览器共用（纯函数，可单测）
 │  ├─ types.ts  presets.ts  estimate.ts  validation.ts  api.ts
-└─ renderer/                WebGUI（React）：简易 / 高级 / 队列 / 文件浏览器 / 日志 / 设置
+└─ renderer/                界面（React）：简易 / 高级 / 队列 / 进度 / 文件浏览器 / 日志 / 设置
+                            原生窗口与 --web 模式共用，差异仅由 window.shrinkly 决定
 ```
 
 **一致性保证**：浏览器与服务端调用**同一个** `computeEstimate` / `buildFfmpegArgs`；服务端在真正启动任务前再次校验参数。
@@ -169,7 +175,7 @@ src/
 ## 9. Git 工作流与回退
 
 `main` 保持可交付；功能分支合并使用 `--no-ff`；里程碑打标签
-（`v0.1.0` = 原生窗口版，`v0.2.0` 起 = 浏览器 WebGUI 版）。
+（`v0.1.0` = 原生窗口版，`v0.2.0` = 浏览器 WebGUI 版，其后恢复原生窗口并保留 `--web` 测试模式）。
 
 ```bash
 git revert <hash>                                   # 回退单个提交（保留历史，推荐）
@@ -182,9 +188,9 @@ git reset --hard v0.2.0                             # 回到发布版本
 
 ## 10. 已知限制
 
-- **必须能打开浏览器**：无桌面环境需手动访问 `runtime.json` 里的地址（服务本身与浏览器无关）。
+- **默认需要桌面环境**：原生窗口模式需要 Windows 桌面；无桌面时可用 `--web` + `SHRINKLY_NO_BROWSER=1` 只跑服务并自行访问 `runtime.json` 里的地址。
 - **仅本机可用**：出于安全考虑只监听 `127.0.0.1`，暂不支持局域网 / 远程访问。
-- **文件选择走服务端**：浏览器拿不到本地路径，因此用内置文件浏览器选文件 / 目录；不支持从资源管理器直接拖进网页。
+- **浏览器模式不支持拖拽**：`--web` 下拿不到本地文件路径，导入退回服务端文件浏览器；原生窗口可直接从资源管理器拖入。
 - **MOV 容器限制（实测）**：FFmpeg 的 mov muxer 不接受 FLAC 音轨与 AV1 视频，故 MOV 仅提供 **H.264 / HEVC + AAC / MP3**；需要 FLAC 或 AV1 请改用 MP4 / MKV。
 - **估算精度**：码率模型基于经验 bpp，动画 / 静态画面 / 高噪点素材误差可能达 ±30%；目标体积模式用单遍 ABR，样片上可控制在 ±12% 内。
 - **AV1 软件编码很慢**：本机无 libsvtav1，使用 `libaom-av1`（默认 `cpu-used 6`）。
