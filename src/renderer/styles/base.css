@@ -1,0 +1,78 @@
+:root {
+  --bg: #12151c;
+  --bg-elev: #1a1f2a;
+  --bg-elev-2: #222836;
+  --border: #2e3646;
+  --text: #e6ecf5;
+  --text-dim: #96a2b8;
+  --accent: #4da3ff;
+  --accent-dim: #2b6fb3;
+  --ok: #45c98a;
+  --warn: #e0a33c;
+  --danger: #e2605c;
+  --radius: 10px;
+  --mono: ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.app-header h1 {
+  font-size: 17px;
+  margin: 0;
+  letter-spacing: 0.5px;
+}
+
+.app-subtitle {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.app-main {
+  flex: 1;
+  padding: 16px;
+  overflow: auto;
+}
+
+.placeholder {
+  color: var(--text-dim);
+}
