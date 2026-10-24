@@ -75,6 +75,7 @@ export class JobQueue {
   private readonly running = new Map<string, { cancel: () => void }>()
   private activeCount = 0
   private nextOrder = 1
+  private started = false
 
   constructor(private readonly deps: QueueDeps) {}
 
@@ -92,6 +93,16 @@ export class JobQueue {
     return this.running.has(id)
   }
 
+  /** 开始处理队列；未开始时只入队不执行，便于先调整参数。 */
+  start(): void {
+    this.started = true
+    this.pump()
+  }
+
+  isStarted(): boolean {
+    return this.started
+  }
+
   enqueue(input: EnqueueInput): JobRecord {
     const record = createRecord(input, this.nextOrder)
     this.nextOrder += 1
@@ -99,14 +110,15 @@ export class JobQueue {
     this.order.push(record.id)
     this.deps.logger.info('queue', `入队 ${record.fileName}（${record.spec.container.toUpperCase()} / ${record.spec.video.codec}）`)
     this.deps.onJobUpdate(record)
-    this.pump()
+    if (this.started) this.pump()
     return record
   }
 
-  updateSpec(id: string, spec: JobSpec): JobRecord | undefined {
+  updateSpec(id: string, spec: JobSpec, estimate?: EstimateResult | null): JobRecord | undefined {
     const job = this.jobs.get(id)
     if (!job || job.status === 'running') return job
     job.spec = spec
+    if (estimate !== undefined) job.estimate = estimate
     this.deps.onJobUpdate(job)
     return job
   }
@@ -159,8 +171,9 @@ export class JobQueue {
     for (const id of this.order) this.cancel(id)
   }
 
-  /** 启动排队中的任务（按并发上限填充）。 */
+  /** 启动排队中的任务（按并发上限填充）。未 start 时不会执行。 */
   pump(): void {
+    if (!this.started) return
     const limit = Math.max(1, this.deps.getConcurrency())
     while (this.activeCount < limit) {
       const next = this.list().find((job) => job.status === 'queued')

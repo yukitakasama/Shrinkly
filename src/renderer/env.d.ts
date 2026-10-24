@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { ShrinklyApi } from '../preload/index'
+import type { ShrinklyApi } from '../shared/ipc'
 
 declare global {
   interface Window {

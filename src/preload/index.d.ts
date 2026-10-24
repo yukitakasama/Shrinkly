@@ -1,4 +1,4 @@
-import type { ShrinklyApi } from './index'
+import type { ShrinklyApi } from '../shared/ipc'
 
 declare global {
   interface Window {
