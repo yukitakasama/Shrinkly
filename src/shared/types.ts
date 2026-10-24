@@ -207,6 +207,8 @@ export interface JobRecord {
   progress: ProgressInfo
   spec: JobSpec
   media: MediaInfo | null
+  /** 入队时的估算结果（用于硬件编码码率上限与结果对比）。 */
+  estimate: EstimateResult | null
   result: JobResult | null
   error: JobError | null
   /** 队列中的显示顺序。 */
