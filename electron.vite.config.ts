@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import { defineConfig } from 'electron-vite'
 import type { Plugin } from 'vite'
 
 /**
@@ -22,22 +22,28 @@ function devCspPlugin(): Plugin {
   }
 }
 
+/** 开发模式下浏览器访问 vite dev server，API 通过代理转发到本地服务。 */
+const devApiPort = process.env['SHRINKLY_API_PORT'] ?? '12800'
+
 export default defineConfig({
+  // 主进程：本地 HTTP 服务 + 托盘外壳（无原生窗口），依赖全部打进 bundle。
   main: {
-    plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } }
-    }
-  },
-  preload: {
-    plugins: [externalizeDepsPlugin()],
-    build: {
-      rollupOptions: { input: { index: resolve(__dirname, 'src/preload/index.ts') } }
     }
   },
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
     plugins: [react(), devCspPlugin()],
+    server: {
+      proxy: {
+        '/api': {
+          target: `http://127.0.0.1:${devApiPort}`,
+          changeOrigin: false,
+          ws: false
+        }
+      }
+    },
     build: {
       rollupOptions: { input: { index: resolve(__dirname, 'src/renderer/index.html') } }
     }

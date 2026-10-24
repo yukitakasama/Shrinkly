@@ -1,3 +1,5 @@
+import { api } from '../lib/api'
+import { pickDirectory, pickExecutable } from '../lib/picker'
 import { useAppStore } from '../store'
 
 interface Props {
@@ -15,18 +17,18 @@ export default function SettingsDialog({ onClose }: Props): React.JSX.Element {
 
   if (!settings) return <div className="modal-backdrop" />
 
-  const pickDirectory = async (): Promise<void> => {
-    const directory = await window.shrinkly.pickDirectory()
+  const chooseDirectory = async (): Promise<void> => {
+    const directory = await pickDirectory()
     if (directory) await updateSettings({ outputDirectory: directory })
   }
 
-  const pickFfmpeg = async (): Promise<void> => {
-    const picked = await window.shrinkly.pickExecutable()
+  const chooseFfmpeg = async (): Promise<void> => {
+    const picked = await pickExecutable()
     if (picked) await setFfmpegPath(picked)
   }
 
   const refresh = async (): Promise<void> => {
-    const next = await window.shrinkly.refreshFfmpeg()
+    const next = await api.refreshFfmpeg()
     setToast({ kind: next.ffmpeg.state === 'ok' ? 'success' : 'error', message: next.ffmpeg.message })
   }
 
@@ -87,7 +89,7 @@ export default function SettingsDialog({ onClose }: Props): React.JSX.Element {
             默认输出目录
             <span className="inline-row">
               <input type="text" readOnly value={settings.outputDirectory ?? '（与源文件同目录）'} />
-              <button type="button" className="ghost" onClick={() => void pickDirectory()}>
+              <button type="button" className="ghost" onClick={() => void chooseDirectory()}>
                 选择
               </button>
               <button type="button" className="link" onClick={() => void updateSettings({ outputDirectory: null })}>
@@ -109,7 +111,7 @@ export default function SettingsDialog({ onClose }: Props): React.JSX.Element {
             ffmpeg 路径
             <span className="inline-row">
               <input type="text" readOnly value={status?.ffmpeg.ffmpegPath ?? '未检测到'} />
-              <button type="button" className="ghost" onClick={() => void pickFfmpeg()}>
+              <button type="button" className="ghost" onClick={() => void chooseFfmpeg()}>
                 选择
               </button>
               <button type="button" className="ghost" onClick={() => void refresh()}>

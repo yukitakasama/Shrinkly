@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
-import FfmpegStatus from './components/FfmpegStatus'
-import DropZone from './components/DropZone'
-import JobList from './components/JobList'
-import InfoPanel from './components/InfoPanel'
-import SimpleMode from './components/SimpleMode'
 import AdvancedMode from './components/AdvancedMode'
-import ResultPanel from './components/ResultPanel'
+import FileBrowser from './components/FileBrowser'
+import FfmpegStatus from './components/FfmpegStatus'
+import ImportBar from './components/ImportBar'
+import InfoPanel from './components/InfoPanel'
+import JobList from './components/JobList'
 import LogDrawer from './components/LogDrawer'
+import ResultPanel from './components/ResultPanel'
 import SettingsDialog from './components/SettingsDialog'
+import SimpleMode from './components/SimpleMode'
 import { useAppStore } from './store'
 
 export default function App(): React.JSX.Element {
@@ -16,6 +17,8 @@ export default function App(): React.JSX.Element {
   const setMode = useAppStore((state) => state.setMode)
   const toast = useAppStore((state) => state.toast)
   const setToast = useAppStore((state) => state.setToast)
+  const shutdown = useAppStore((state) => state.shutdown)
+  const version = useAppStore((state) => state.status?.version)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
@@ -28,20 +31,27 @@ export default function App(): React.JSX.Element {
     return () => clearTimeout(timer)
   }, [toast, setToast])
 
+  const quit = (): void => {
+    if (window.confirm('确定要退出 Shrinkly 吗？关闭后本页面将无法继续使用。')) void shutdown()
+  }
+
   return (
     <div className="app-shell">
       <header className="app-header">
         <h1>Shrinkly</h1>
-        <span className="app-subtitle">视频压缩与格式转换</span>
+        <span className="app-subtitle">视频压缩与格式转换{version ? ` · v${version}` : ''}</span>
         <FfmpegStatus />
         <button type="button" className="ghost" onClick={() => setSettingsOpen(true)}>
           设置
+        </button>
+        <button type="button" className="ghost" onClick={quit}>
+          退出应用
         </button>
       </header>
 
       <main className="app-main">
         <aside className="sidebar">
-          <DropZone />
+          <ImportBar />
           <JobList />
         </aside>
 
@@ -63,6 +73,7 @@ export default function App(): React.JSX.Element {
       <LogDrawer />
 
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      <FileBrowser />
 
       {toast && (
         <div className={`toast ${toast.kind}`} onClick={() => setToast(null)}>

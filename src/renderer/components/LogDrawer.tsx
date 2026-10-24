@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { api } from '../lib/api'
 import { useAppStore } from '../store'
 
 const LEVEL_LABEL: Record<'info' | 'warn' | 'error', string> = { info: '信息', warn: '警告', error: '错误' }
@@ -30,13 +31,15 @@ export default function LogDrawer(): React.JSX.Element {
     if (node) node.scrollTop = node.scrollHeight
   }, [visible, open, autoScroll])
 
-  const exportLogs = async (): Promise<void> => {
-    try {
-      const path = await window.shrinkly.exportLogs()
-      if (path) setToast({ kind: 'success', message: `日志已导出到 ${path}` })
-    } catch (error) {
-      setToast({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
-    }
+  const exportLogs = (): void => {
+    // 直接让浏览器下载由服务端生成的日志文本
+    const link = document.createElement('a')
+    link.href = api.logsExportUrl()
+    link.download = ''
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setToast({ kind: 'success', message: '日志已开始下载（见浏览器下载列表）' })
   }
 
   return (
@@ -62,7 +65,7 @@ export default function LogDrawer(): React.JSX.Element {
           自动滚动
         </label>
         <span className="muted">{filtered.length} 条</span>
-        <button type="button" className="ghost" onClick={() => void exportLogs()}>
+        <button type="button" className="ghost" onClick={exportLogs}>
           导出
         </button>
       </div>

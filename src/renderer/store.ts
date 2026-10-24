@@ -1,10 +1,10 @@
 /**
  * 渲染层唯一状态源（Zustand）。
  *
- * 约定：所有与主进程的交互都通过 `window.shrinkly`；store 只保存 UI 状态与派生结果。
+ * 所有与本地服务端的交互都走 `lib/api`（HTTP + SSE），不再有 Electron IPC。
  */
 import { create } from 'zustand'
-import type { AppStatus, LogEntryPayload } from '../shared/ipc'
+import type { AppStatus, LogEntryPayload } from '../shared/api'
 import type {
   AudioCodec,
   AudioMode,
@@ -14,10 +14,23 @@ import type {
   ValidationResult,
   VideoCodec
 } from '../shared/types'
+import { api, subscribeEvents } from './lib/api'
 import { sanitizeExtraArgs } from '../shared/validation'
 import { buildJobSpec, deriveTargets } from './lib/spec'
 
 export type Mode = 'simple' | 'advanced'
+
+export type PickerMode = 'files' | 'directory' | 'executable'
+
+export interface PickerRequest {
+  mode: PickerMode
+  resolve: (selection: string[] | null) => void
+}
+
+export interface Toast {
+  kind: 'info' | 'error' | 'success'
+  message: string
+}
 
 /** 高级模式的手动参数（null 表示按估算自动推导）。 */
 export interface AdvancedValues {
@@ -45,11 +58,6 @@ export interface AdvancedValues {
   extraArgsText: string
 }
 
-export interface Toast {
-  kind: 'info' | 'error' | 'success'
-  message: string
-}
-
 interface AppStore {
   status: AppStatus | null
   jobs: JobRecord[]
@@ -70,6 +78,7 @@ interface AppStore {
   importing: boolean
   toast: Toast | null
   logs: LogEntryPayload[]
+  picker: PickerRequest | null
 
   init: () => Promise<void>
   refreshJobs: () => Promise<void>
@@ -84,10 +93,8 @@ interface AppStore {
   setAudioMode: (mode: AudioMode) => void
   setAdvanced: (patch: Partial<AdvancedValues>) => void
   resetAdvanced: () => void
-  pickOutputDirectory: () => Promise<void>
   importPaths: (paths: string[]) => Promise<void>
   refreshEditor: () => Promise<void>
-  /** 防抖版的 refreshEditor（滑块拖动时使用）。 */
   scheduleRefresh: () => void
   startQueue: () => Promise<void>
   cancelJob: (id: string) => Promise<void>
@@ -98,7 +105,13 @@ interface AppStore {
   updateSettings: (patch: Partial<NonNullable<AppStatus['settings']>>) => Promise<void>
   setFfmpegPath: (ffmpegPath: string | null) => Promise<void>
   installFfmpeg: () => Promise<void>
+  openPicker: (mode: PickerMode) => Promise<string[] | null>
+  closePicker: (selection: string[] | null) => void
+  shutdown: () => Promise<void>
 }
+
+const REFRESH_DEBOUNCE_MS = 80
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
 const selectedJob = (state: Pick<AppStore, 'jobs' | 'selectedId'>): JobRecord | null =>
   state.jobs.find((job) => job.id === state.selectedId) ?? null
@@ -117,19 +130,12 @@ function editorFieldsFor(job: JobRecord | null): Partial<AppStore> {
   }
 }
 
-/** 估算重算的防抖间隔（毫秒），避免滑块拖动时刷爆 IPC。 */
-const REFRESH_DEBOUNCE_MS = 80
-let refreshTimer: ReturnType<typeof setTimeout> | null = null
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return String(error)
+}
 
 export const useAppStore = create<AppStore>((set, get) => ({
-  /** 防抖版本：滑块 / 输入框连续变化时只算最后一次。 */
-  scheduleRefresh() {
-    if (refreshTimer) clearTimeout(refreshTimer)
-    refreshTimer = setTimeout(() => {
-      refreshTimer = null
-      void get().refreshEditor()
-    }, REFRESH_DEBOUNCE_MS)
-  },
   status: null,
   jobs: [],
   selectedId: null,
@@ -149,47 +155,47 @@ export const useAppStore = create<AppStore>((set, get) => ({
   importing: false,
   toast: null,
   logs: [],
+  picker: null,
 
   async init() {
-    const status = await window.shrinkly.getStatus()
-    set({ status, quality: status.settings.defaultQuality })
-    await get().refreshJobs()
+    try {
+      const status = await api.status()
+      set({ status, quality: status.settings.defaultQuality })
+      await get().refreshJobs()
+      set({ logs: (await api.logs(500)).slice(-500) })
+    } catch (error) {
+      set({ toast: { kind: 'error', message: errorMessage(error) } })
+    }
 
-    const recent = await window.shrinkly.recentLogs()
-    set({ logs: recent.slice(-500) })
-
-    window.shrinkly.onJobUpdate((job) => {
-      set((state) => {
-        const exists = state.jobs.some((item) => item.id === job.id)
-        const jobs = exists ? state.jobs.map((item) => (item.id === job.id ? job : item)) : [...state.jobs, job]
-        jobs.sort((a, b) => a.order - b.order)
-        const nextState: Partial<AppStore> = { jobs }
-        if (state.selectedId === null) nextState.selectedId = job.id
-        return nextState
-      })
-      if (job.id === get().selectedId) void get().refreshEditor()
-    })
-
-    window.shrinkly.onJobProgress(({ id, progress }) => {
-      set((state) => ({
-        jobs: state.jobs.map((job) => (job.id === id ? { ...job, progress } : job))
-      }))
-    })
-
-    window.shrinkly.onLogEntry((entry) => {
-      set((state) => ({ logs: [...state.logs.slice(-1500), entry] }))
-    })
-
-    window.shrinkly.onJobLog(({ id, line }) => {
-      // 任务日志直接并入全局日志抽屉，带文件名前缀便于搜索。
-      set((state) => ({
-        logs: [...state.logs.slice(-1500), { time: Date.now(), level: 'info', scope: id.slice(0, 8), message: line }]
-      }))
+    subscribeEvents({
+      jobUpdate: (job) => {
+        set((state) => {
+          const exists = state.jobs.some((item) => item.id === job.id)
+          const jobs = exists ? state.jobs.map((item) => (item.id === job.id ? job : item)) : [...state.jobs, job]
+          jobs.sort((a, b) => a.order - b.order)
+          return { jobs }
+        })
+        if (job.id === get().selectedId) void get().refreshEditor()
+      },
+      jobProgress: ({ id, progress }) => {
+        set((state) => ({ jobs: state.jobs.map((job) => (job.id === id ? { ...job, progress } : job)) }))
+      },
+      jobLog: ({ id, line }) => {
+        set((state) => ({
+          logs: [...state.logs.slice(-1500), { time: Date.now(), level: 'info' as const, scope: id.slice(0, 8), message: line }]
+        }))
+      },
+      log: (entry) => {
+        set((state) => ({ logs: [...state.logs.slice(-1500), entry] }))
+      },
+      install: (progress) => {
+        if (progress.phase !== 'running') set({ toast: { kind: progress.phase === 'done' ? 'success' : 'error', message: progress.line } })
+      }
     })
   },
 
   async refreshJobs() {
-    const jobs = await window.shrinkly.listJobs()
+    const jobs = await api.listJobs()
     const currentId =
       get().selectedId && jobs.some((job) => job.id === get().selectedId) ? get().selectedId : (jobs[0]?.id ?? null)
     const job = jobs.find((item) => item.id === currentId) ?? null
@@ -243,28 +249,29 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setAdvanced(patch) {
     const current = get().advanced
+    const estimate = get().estimate
+    const settings = get().status?.settings
     const base: AdvancedValues =
-      current ??
-      {
-        rateControl: get().estimate?.rateControl ?? 'crf',
-        crf: get().estimate?.crf ?? 24,
-        bitrateKbps: get().estimate ? Math.round(get().estimate!.videoBitrateKbps) : null,
-        width: get().estimate?.width ?? null,
-        height: get().estimate?.height ?? null,
-        frameRate: get().estimate?.frameRate ?? null,
+      current ?? {
+        rateControl: estimate?.rateControl ?? 'crf',
+        crf: estimate?.crf ?? 24,
+        bitrateKbps: estimate ? Math.round(estimate.videoBitrateKbps) : null,
+        width: estimate?.width ?? null,
+        height: estimate?.height ?? null,
+        frameRate: estimate?.frameRate ?? null,
         preset: 'medium',
         profile: null,
         level: null,
         pixelFormat: 'yuv420p',
         gop: null,
         bframes: null,
-        hwAccel: get().status?.settings.hwAccel ?? false,
-        audioBitrateKbps: get().estimate?.audioBitrateKbps ?? null,
+        hwAccel: settings?.hwAccel ?? false,
+        audioBitrateKbps: estimate?.audioBitrateKbps ?? null,
         audioChannels: 0,
-        audioSampleRate: get().estimate?.audioSampleRate ?? null,
-        outputDirectory: get().status?.settings.outputDirectory ?? null,
-        nameTemplate: get().status?.settings.nameTemplate ?? '{name}_compressed.{ext}',
-        conflict: get().status?.settings.defaultConflict ?? 'rename',
+        audioSampleRate: estimate?.audioSampleRate ?? null,
+        outputDirectory: settings?.outputDirectory ?? null,
+        nameTemplate: settings?.nameTemplate ?? '{name}_compressed.{ext}',
+        conflict: settings?.defaultConflict ?? 'rename',
         keepMetadata: true,
         keepChapters: true,
         extraArgsText: ''
@@ -275,31 +282,34 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   resetAdvanced() {
     set({ advanced: null })
-    void get().refreshEditor()
+    get().scheduleRefresh()
   },
 
-  async pickOutputDirectory() {
-    const directory = await window.shrinkly.pickDirectory()
-    if (directory) get().setAdvanced({ outputDirectory: directory })
+  /** 防抖：滑块 / 输入框连续变化时只算最后一次。 */
+  scheduleRefresh() {
+    if (refreshTimer) clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null
+      void get().refreshEditor()
+    }, REFRESH_DEBOUNCE_MS)
   },
 
   async importPaths(paths) {
     if (paths.length === 0) return
     set({ importing: true })
     try {
-      const files = await window.shrinkly.expandPaths(paths)
+      const { files } = await api.expandPaths({ paths, recursive: true })
       if (files.length === 0) {
         set({ toast: { kind: 'error', message: '没有找到可导入的视频文件' } })
         return
       }
-      const status = get().status
-      const settings = status?.settings
+      const settings = get().status?.settings
       let added = 0
       for (const filePath of files) {
         try {
-          const media = await window.shrinkly.probe(filePath)
+          const media = await api.probe(filePath)
           const targets = deriveTargets(media)
-          const estimate = await window.shrinkly.estimate({
+          const estimate = await api.estimate({
             media,
             quality: settings?.defaultQuality ?? 60,
             videoCodec: targets.videoCodec,
@@ -323,17 +333,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
             conflict: settings?.defaultConflict ?? 'rename',
             hwAccel: settings?.hwAccel ?? false
           })
-          await window.shrinkly.addJob({ spec, media, estimate })
+          await api.addJob({ spec, media, estimate })
           added += 1
         } catch (error) {
-          set({ toast: { kind: 'error', message: `${filePath}：${error instanceof Error ? error.message : String(error)}` } })
+          set({ toast: { kind: 'error', message: `${filePath}：${errorMessage(error)}` } })
         }
       }
       await get().refreshJobs()
       if (added > 0) {
         set({ toast: { kind: 'success', message: `已加入 ${added} 个任务，确认参数后点「开始转换」` } })
-        await get().refreshEditor()
       }
+    } catch (error) {
+      set({ toast: { kind: 'error', message: errorMessage(error) } })
     } finally {
       set({ importing: false })
     }
@@ -349,22 +360,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
     const media = job.media
     const settings = state.status?.settings
-    const container = state.container
-    const videoCodec = state.videoCodec
-    const audioCodec = state.audioCodec
+    const advanced = state.advanced
     const audioMode = state.audioMode
+    const audioCodec = state.audioCodec
 
     set({ editing: true })
     try {
-      const estimate = await window.shrinkly.estimate({
+      const estimate = await api.estimate({
         media,
         quality: state.quality,
-        videoCodec,
-        container,
+        videoCodec: state.videoCodec,
+        container: state.container,
         audioCodec,
         audioMode,
         targetSizeMB: state.targetEnabled ? state.targetMB : null,
-        hwAccel: settings?.hwAccel ?? false
+        hwAccel: advanced?.hwAccel ?? settings?.hwAccel ?? false
       })
 
       if (!estimate.ok) {
@@ -372,7 +382,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
         return
       }
 
-      const advanced = state.advanced
       const extra = advanced?.extraArgsText ? sanitizeExtraArgs(advanced.extraArgsText).args : []
       const spec = buildJobSpec({
         media,
@@ -412,7 +421,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           : undefined
       })
 
-      const validation = await window.shrinkly.validate({
+      const validation = await api.validate({
         spec,
         context: {
           sourceAudioCodec: media.audio?.codec ?? null,
@@ -421,7 +430,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
       })
 
-      const preview = await window.shrinkly.previewArgs({
+      const preview = await api.previewArgs({
         spec,
         outputPath: `${media.path.replace(/\.[^.]+$/, '')}_compressed.${estimate.container}`
       })
@@ -429,10 +438,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ estimate, validation, command: preview.command })
 
       if (validation.ok && (job.status === 'queued' || job.status === 'preparing')) {
-        await window.shrinkly.updateJobSpec({ id: job.id, spec, estimate })
+        await api.updateJob(job.id, { spec, estimate })
       }
     } catch (error) {
-      set({ toast: { kind: 'error', message: error instanceof Error ? error.message : String(error) } })
+      set({ toast: { kind: 'error', message: errorMessage(error) } })
     } finally {
       set({ editing: false })
     }
@@ -447,53 +456,60 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (job && (job.status === 'queued' || job.status === 'preparing')) {
       await get().refreshEditor()
     }
-    await window.shrinkly.startQueue()
-    await get().refreshJobs()
+    try {
+      await api.startQueue()
+      await get().refreshJobs()
+    } catch (error) {
+      set({ toast: { kind: 'error', message: errorMessage(error) } })
+    }
   },
 
   async cancelJob(id) {
-    await window.shrinkly.cancelJob(id)
+    await api.cancelJob(id)
   },
 
   async cancelAll() {
-    await window.shrinkly.cancelAll()
+    await api.cancelAll()
   },
 
   async removeJob(id) {
-    await window.shrinkly.removeJob(id)
+    await api.removeJob(id)
     await get().refreshJobs()
   },
 
   async moveJob(id, delta) {
-    await window.shrinkly.moveJob(id, delta)
+    await api.moveJob(id, { delta })
     await get().refreshJobs()
   },
 
   async clearFinished() {
-    await window.shrinkly.clearFinished()
+    await api.clearFinished()
     await get().refreshJobs()
   },
 
   async updateSettings(patch) {
-    await window.shrinkly.updateSettings(patch)
-    const status = await window.shrinkly.getStatus()
-    set({ status })
-    await get().refreshEditor()
+    try {
+      await api.updateSettings(patch)
+      set({ status: await api.status() })
+      await get().refreshEditor()
+    } catch (error) {
+      set({ toast: { kind: 'error', message: errorMessage(error) } })
+    }
   },
 
   async setFfmpegPath(ffmpegPath) {
     try {
-      const status = await window.shrinkly.setFfmpegPath(ffmpegPath)
+      const status = await api.setFfmpegPath(ffmpegPath)
       set({ status })
       set({ toast: { kind: status.ffmpeg.state === 'ok' ? 'success' : 'error', message: status.ffmpeg.message } })
     } catch (error) {
-      set({ toast: { kind: 'error', message: error instanceof Error ? error.message : String(error) } })
+      set({ toast: { kind: 'error', message: errorMessage(error) } })
     }
   },
 
   async installFfmpeg() {
     try {
-      const status = await window.shrinkly.installFfmpeg()
+      const status = await api.installFfmpeg()
       set({ status })
       set({
         toast: {
@@ -502,7 +518,30 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
       })
     } catch (error) {
-      set({ toast: { kind: 'error', message: error instanceof Error ? error.message : String(error) } })
+      set({ toast: { kind: 'error', message: errorMessage(error) } })
+    }
+  },
+
+  openPicker(mode) {
+    return new Promise<string[] | null>((resolve) => {
+      const previous = get().picker?.resolve
+      if (previous) previous(null)
+      set({ picker: { mode, resolve } })
+    })
+  },
+
+  closePicker(selection) {
+    const request = get().picker
+    set({ picker: null })
+    request?.resolve(selection)
+  },
+
+  async shutdown() {
+    try {
+      await api.shutdown()
+      set({ toast: { kind: 'info', message: '服务已关闭，可以关闭此页面了' } })
+    } catch (error) {
+      set({ toast: { kind: 'error', message: errorMessage(error) } })
     }
   }
 }))

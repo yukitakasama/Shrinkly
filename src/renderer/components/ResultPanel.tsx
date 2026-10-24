@@ -1,3 +1,4 @@
+import { api } from '../lib/api'
 import { selectedJob, useAppStore } from '../store'
 import { formatBitrate, formatBytes, formatFps, formatRatio } from '../lib/format'
 
@@ -10,7 +11,7 @@ export default function ResultPanel(): React.JSX.Element | null {
   const openFolder = async (): Promise<void> => {
     if (!job.result?.outputPath) return
     try {
-      await window.shrinkly.openPath(job.result.outputPath)
+      await api.reveal(job.result.outputPath)
     } catch (error) {
       setToast({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
     }

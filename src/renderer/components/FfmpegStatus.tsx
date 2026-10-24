@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { subscribeEvents } from '../lib/api'
+import { pickExecutable } from '../lib/picker'
 import { useAppStore } from '../store'
 
 /** 顶部 ffmpeg 状态条：可用 / 缺失 / 无效，并提供安装与自定义路径。 */
@@ -10,9 +12,11 @@ export default function FfmpegStatus(): React.JSX.Element {
   const [installLine, setInstallLine] = useState<string | null>(null)
 
   useEffect(() => {
-    return window.shrinkly.onInstallProgress((progress) => {
-      setInstallLine(progress.line)
-      if (progress.phase !== 'running') setBusy(false)
+    return subscribeEvents({
+      install: (progress) => {
+        setInstallLine(progress.line)
+        if (progress.phase !== 'running') setBusy(false)
+      }
     })
   }, [])
 
@@ -22,7 +26,7 @@ export default function FfmpegStatus(): React.JSX.Element {
   const ok = ffmpeg.state === 'ok'
 
   const pickPath = async (): Promise<void> => {
-    const picked = await window.shrinkly.pickExecutable()
+    const picked = await pickExecutable()
     if (picked) await setFfmpegPath(picked)
   }
 

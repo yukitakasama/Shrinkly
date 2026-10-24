@@ -42,7 +42,7 @@ export default function JobList(): React.JSX.Element {
   const startQueue = useAppStore((state) => state.startQueue)
 
   if (jobs.length === 0) {
-    return <p className="empty-hint">队列为空，先拖入视频文件。</p>
+    return <p className="empty-hint">队列为空，点击上方「添加视频文件」导入。</p>
   }
 
   return (

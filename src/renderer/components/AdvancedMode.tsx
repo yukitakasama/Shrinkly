@@ -7,6 +7,7 @@ import {
 } from '../../shared/presets'
 import type { AudioCodec, ContainerFormat, VideoCodec } from '../../shared/types'
 import CommandBlock from './CommandBlock'
+import { pickDirectory } from '../lib/picker'
 import { selectedJob, useAppStore } from '../store'
 
 /** 高级模式：容器 / 视频 / 音频 / 输出 / 额外参数。 */
@@ -24,7 +25,10 @@ export default function AdvancedMode(): React.JSX.Element {
   const setAudioMode = useAppStore((state) => state.setAudioMode)
   const setAdvanced = useAppStore((state) => state.setAdvanced)
   const resetAdvanced = useAppStore((state) => state.resetAdvanced)
-  const pickOutputDirectory = useAppStore((state) => state.pickOutputDirectory)
+  const pickOutputDirectory = async (): Promise<void> => {
+    const directory = await pickDirectory()
+    if (directory) setAdvanced({ outputDirectory: directory })
+  }
   const startQueue = useAppStore((state) => state.startQueue)
   const validation = useAppStore((state) => state.validation)
   const ffmpegOk = useAppStore((state) => state.status?.ffmpeg.state === 'ok')
