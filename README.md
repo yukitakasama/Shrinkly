@@ -5,6 +5,8 @@
 > 界面：Electron + React + TypeScript，简体中文，深色主题。
 > 详细需求与实现取舍见 [PLAN.md](PLAN.md)。
 
+![Shrinkly 界面：队列、源信息、转换结果与实时日志](docs/screenshots/overview.png)
+
 ---
 
 ## 1. 功能一览
