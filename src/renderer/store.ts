@@ -10,12 +10,16 @@ import type {
   AudioMode,
   ContainerFormat,
   EstimateResult,
+  HwMode,
   JobRecord,
+  ValidationIssue,
   ValidationResult,
   VideoCodec
 } from '../shared/types'
 import { api, subscribeEvents } from './lib/api'
 import { sanitizeExtraArgs } from '../shared/validation'
+import { remapCodecsForContainer } from '../shared/presets'
+import { resolveAcceleration, type AccelerationDecision } from '../shared/hardware'
 import { buildJobSpec, deriveTargets } from './lib/spec'
 
 export type Mode = 'simple' | 'advanced'
@@ -70,12 +74,20 @@ interface AppStore {
   videoCodec: VideoCodec
   audioCodec: AudioCodec
   audioMode: AudioMode
+  /** 简易模式的硬件加速选择；最终是否真的走 GPU 由 `acceleration` 决定。 */
+  hwMode: HwMode
+  /** 当前参数下实际使用的计算方式（估算完成后更新）。 */
+  acceleration: AccelerationDecision | null
+  /** 切换输出格式时的自动改写提示（例如 VP9 → H.264）。 */
+  containerHint: string | null
   advanced: AdvancedValues | null
   estimate: EstimateResult | null
   validation: ValidationResult | null
   command: string
   editing: boolean
   importing: boolean
+  /** 「开始压缩」请求进行中，防止重复点击。 */
+  starting: boolean
   toast: Toast | null
   logs: LogEntryPayload[]
   picker: PickerRequest | null
@@ -88,6 +100,8 @@ interface AppStore {
   setQuality: (quality: number) => void
   setTarget: (enabled: boolean, mb?: number) => void
   setContainer: (container: ContainerFormat) => void
+  setHwMode: (mode: HwMode) => void
+  rescanHardware: () => Promise<void>
   setVideoCodec: (codec: VideoCodec) => void
   setAudioCodec: (codec: AudioCodec) => void
   setAudioMode: (mode: AudioMode) => void
@@ -147,12 +161,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
   videoCodec: 'h264',
   audioCodec: 'aac',
   audioMode: 'encode',
+  hwMode: 'auto',
+  acceleration: null,
+  containerHint: null,
   advanced: null,
   estimate: null,
   validation: null,
   command: '',
   editing: false,
   importing: false,
+  starting: false,
   toast: null,
   logs: [],
   picker: null,
@@ -160,9 +178,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
   async init() {
     try {
       const status = await api.status()
-      set({ status, quality: status.settings.defaultQuality })
+      set({
+        status,
+        quality: status.settings.defaultQuality,
+        hwMode: status.settings.defaultHwMode ?? 'auto'
+      })
       await get().refreshJobs()
       set({ logs: (await api.logs(500)).slice(-500) })
+      if (status.hardware.state !== 'ready') {
+        void api
+          .probeHardware()
+          .then((hardware) => {
+            const current = get().status
+            if (current) set({ status: { ...current, hardware } })
+            return get().refreshEditor()
+          })
+          .catch(() => undefined)
+      }
     } catch (error) {
       set({ toast: { kind: 'error', message: errorMessage(error) } })
     }
@@ -199,7 +231,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const currentId =
       get().selectedId && jobs.some((job) => job.id === get().selectedId) ? get().selectedId : (jobs[0]?.id ?? null)
     const job = jobs.find((item) => item.id === currentId) ?? null
-    set({ jobs, selectedId: currentId, advanced: null, ...editorFieldsFor(job) })
+    set({ jobs, selectedId: currentId, advanced: null, containerHint: null, ...editorFieldsFor(job) })
     if (currentId) await get().refreshEditor()
   },
 
@@ -209,7 +241,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   selectJob(id) {
     const job = get().jobs.find((item) => item.id === id) ?? null
-    set({ selectedId: id, advanced: null, ...editorFieldsFor(job) })
+    set({ selectedId: id, advanced: null, containerHint: null, ...editorFieldsFor(job) })
     void get().refreshEditor()
   },
 
@@ -228,8 +260,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   setContainer(container) {
-    set({ container })
+    const state = get()
+    if (state.container === container) return
+    const remapped = remapCodecsForContainer(container, state.videoCodec, state.audioCodec, state.audioMode)
+    set({
+      container,
+      videoCodec: remapped.videoCodec,
+      audioCodec: remapped.audioCodec,
+      containerHint: remapped.changes.length > 0 ? `${remapped.changes.join('；')}（已按 ${container.toUpperCase()} 容器自动调整）` : null
+    })
     get().scheduleRefresh()
+  },
+
+  setHwMode(mode) {
+    set({ hwMode: mode })
+    get().scheduleRefresh()
+  },
+
+  async rescanHardware() {
+    try {
+      const hardware = await api.probeHardware()
+      const status = get().status
+      if (status) set({ status: { ...status, hardware } })
+      set({ toast: { kind: hardware.usable.length > 0 ? 'success' : 'info', message: hardware.message } })
+      await get().refreshEditor()
+    } catch (error) {
+      set({ toast: { kind: 'error', message: errorMessage(error) } })
+    }
   },
 
   setVideoCodec(videoCodec) {
@@ -309,6 +366,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
         try {
           const media = await api.probe(filePath)
           const targets = deriveTargets(media)
+          const acceleration = resolveAcceleration(
+            get().hwMode,
+            get().status?.hardware ?? null,
+            targets.videoCodec
+          )
           const estimate = await api.estimate({
             media,
             quality: settings?.defaultQuality ?? 60,
@@ -317,7 +379,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
             audioCodec: targets.audioCodec,
             audioMode: targets.audioMode,
             targetSizeMB: null,
-            hwAccel: settings?.hwAccel ?? false
+            hwAccel: acceleration.hwAccel,
+            hwEncoder: acceleration.encoder
           })
           if (!estimate.ok) {
             set({ toast: { kind: 'error', message: `${media.fileName}：${estimate.error?.title ?? '无法估算'}` } })
@@ -331,7 +394,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
             outputDirectory: settings?.outputDirectory ?? null,
             nameTemplate: settings?.nameTemplate ?? '{name}_compressed.{ext}',
             conflict: settings?.defaultConflict ?? 'rename',
-            hwAccel: settings?.hwAccel ?? false
+            hwAccel: acceleration.hwAccel
           })
           await api.addJob({ spec, media, estimate })
           added += 1
@@ -355,7 +418,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const state = get()
     const job = selectedJob(state)
     if (!job || !job.media) {
-      set({ estimate: null, validation: null, command: '' })
+      set({ estimate: null, validation: null, command: '', acceleration: null })
       return
     }
     const media = job.media
@@ -363,6 +426,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const advanced = state.advanced
     const audioMode = state.audioMode
     const audioCodec = state.audioCodec
+    const hardware = state.status?.hardware ?? null
+    // 高级模式的开关等价于「强制 GPU / 强制 CPU」；简易模式则按三态选择解析。
+    const requested: HwMode = advanced ? (advanced.hwAccel ? 'gpu' : 'cpu') : state.hwMode
+    const acceleration = resolveAcceleration(requested, hardware, state.videoCodec)
 
     set({ editing: true })
     try {
@@ -374,15 +441,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
         audioCodec,
         audioMode,
         targetSizeMB: state.targetEnabled ? state.targetMB : null,
-        hwAccel: advanced?.hwAccel ?? settings?.hwAccel ?? false
+        hwAccel: acceleration.hwAccel,
+        hwEncoder: acceleration.encoder
       })
 
       if (!estimate.ok) {
-        set({ estimate, validation: null, command: '' })
+        set({ estimate, validation: null, command: '', acceleration })
         return
       }
 
-      const extra = advanced?.extraArgsText ? sanitizeExtraArgs(advanced.extraArgsText).args : []
+      const sanitizedExtra = advanced?.extraArgsText
+        ? sanitizeExtraArgs(advanced.extraArgsText)
+        : { args: [] as string[], issues: [] as ValidationIssue[] }
+      const extra = sanitizedExtra.args
       const spec = buildJobSpec({
         media,
         estimate,
@@ -391,7 +462,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         outputDirectory: advanced?.outputDirectory ?? settings?.outputDirectory ?? null,
         nameTemplate: advanced?.nameTemplate ?? settings?.nameTemplate ?? '{name}_compressed.{ext}',
         conflict: advanced?.conflict ?? settings?.defaultConflict ?? 'rename',
-        hwAccel: advanced?.hwAccel ?? settings?.hwAccel ?? false,
+        hwAccel: acceleration.hwAccel,
         keepMetadata: advanced?.keepMetadata ?? true,
         keepChapters: advanced?.keepChapters ?? true,
         extraArgs: extra,
@@ -409,7 +480,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
               pixelFormat: advanced.pixelFormat,
               gop: advanced.gop,
               bframes: advanced.bframes,
-              hwAccel: advanced.hwAccel
+              hwAccel: acceleration.hwAccel
             }
           : undefined,
         audioOverride: advanced
@@ -426,18 +497,42 @@ export const useAppStore = create<AppStore>((set, get) => ({
         context: {
           sourceAudioCodec: media.audio?.codec ?? null,
           sourceWidth: media.video?.width ?? null,
-          sourceHeight: media.video?.height ?? null
+          sourceHeight: media.video?.height ?? null,
+          availableEncoders: state.status?.capabilities?.encoders ?? null
         }
       })
+
+      // 额外参数中不合法的部分会被过滤掉后再交给服务端，所以这里要把它们自己的
+      // 报错补回校验结果，否则界面上完全看不到提示。
+      const extraErrors = sanitizedExtra.issues.filter(
+        (issue) => issue.code === 'FORBIDDEN_ARG' || issue.code === 'OUTPUT_PATH_ARG'
+      )
+      const extraWarnings = sanitizedExtra.issues.filter((issue) => !extraErrors.includes(issue))
+      const mergedValidation: ValidationResult =
+        sanitizedExtra.issues.length > 0
+          ? {
+              ok: validation.ok && extraErrors.length === 0,
+              errors: [...validation.errors, ...extraErrors],
+              warnings: [...validation.warnings, ...extraWarnings]
+            }
+          : validation
+
+      // 参数不合法时服务端会拒绝生成命令（400），所以先落校验结果，再做命令预览，
+      // 否则预览失败会把刚算出来的错误一起吞掉。
+      set({ estimate, validation: mergedValidation, acceleration })
+      if (!mergedValidation.ok) {
+        set({ command: '' })
+        return
+      }
 
       const preview = await api.previewArgs({
         spec,
         outputPath: `${media.path.replace(/\.[^.]+$/, '')}_compressed.${estimate.container}`
       })
 
-      set({ estimate, validation, command: preview.command })
+      set({ command: preview.command })
 
-      if (validation.ok && (job.status === 'queued' || job.status === 'preparing')) {
+      if (job.status === 'queued' || job.status === 'preparing') {
         await api.updateJob(job.id, { spec, estimate })
       }
     } catch (error) {
@@ -448,19 +543,32 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   async startQueue() {
+    if (get().starting) return
     if (refreshTimer) {
       clearTimeout(refreshTimer)
       refreshTimer = null
+    }
+    const pending = get().jobs.filter((item) => item.status === 'queued').length
+    if (pending === 0) {
+      set({ toast: { kind: 'info', message: '没有待转换的任务，请先导入文件' } })
+      return
     }
     const job = selectedJob(get())
     if (job && (job.status === 'queued' || job.status === 'preparing')) {
       await get().refreshEditor()
     }
+    if (get().jobs.filter((item) => item.status === 'queued').length === 0) {
+      set({ toast: { kind: 'error', message: '当前参数无法开始转换，请先修正提示中的问题' } })
+      return
+    }
+    set({ starting: true })
     try {
       await api.startQueue()
       await get().refreshJobs()
     } catch (error) {
       set({ toast: { kind: 'error', message: errorMessage(error) } })
+    } finally {
+      set({ starting: false })
     }
   },
 
@@ -490,7 +598,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   async updateSettings(patch) {
     try {
       await api.updateSettings(patch)
-      set({ status: await api.status() })
+      const status = await api.status()
+      set({ status, ...(patch.defaultHwMode ? { hwMode: patch.defaultHwMode } : {}) })
       await get().refreshEditor()
     } catch (error) {
       set({ toast: { kind: 'error', message: errorMessage(error) } })

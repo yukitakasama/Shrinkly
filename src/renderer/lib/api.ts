@@ -21,6 +21,7 @@ import type {
 import type {
   AppSettings,
   EstimateResult,
+  HardwareStatus,
   InstallProgress,
   JobRecord,
   JobSpec,
@@ -119,6 +120,7 @@ export const api = {
   refreshFfmpeg: (): Promise<AppStatus> => post<AppStatus>('/api/ffmpeg/refresh'),
   setFfmpegPath: (ffmpegPath: string | null): Promise<AppStatus> => post<AppStatus>('/api/ffmpeg/path', { ffmpegPath }),
   installFfmpeg: (): Promise<AppStatus> => post<AppStatus>('/api/ffmpeg/install'),
+  probeHardware: (): Promise<HardwareStatus> => post<HardwareStatus>('/api/hw/probe'),
 
   getSettings: (): Promise<AppSettings> => request<AppSettings>('/api/settings'),
   updateSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>

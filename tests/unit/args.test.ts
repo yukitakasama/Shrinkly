@@ -101,6 +101,30 @@ describe('视频参数', () => {
     expect(pairValue(args, '-preset')).toBe('p5')
   })
 
+  it('QSV 使用 global_quality，而不是 NVENC 的 -cq / p5', () => {
+    const spec = makeSpec({ video: { ...makeSpec().video, encoder: 'h264_qsv', hwAccel: true } })
+    const args = build(spec)
+    expect(pairValue(args, '-c:v')).toBe('h264_qsv')
+    expect(pairValue(args, '-global_quality')).toBe('24')
+    expect(args).not.toContain('-cq')
+    expect(pairValue(args, '-preset')).toBe('medium')
+  })
+
+  it('QSV 的超快档位折到 veryfast（QSV 不接受 ultrafast）', () => {
+    const spec = makeSpec({ video: { ...makeSpec().video, encoder: 'h264_qsv', hwAccel: true, preset: 'ultrafast' } })
+    expect(pairValue(build(spec), '-preset')).toBe('veryfast')
+  })
+
+  it('AMF 使用 CQP，并映射到三档 quality', () => {
+    const spec = makeSpec({ video: { ...makeSpec().video, encoder: 'h264_amf', hwAccel: true, preset: 'slow' } })
+    const args = build(spec)
+    expect(pairValue(args, '-rc')).toBe('cqp')
+    expect(pairValue(args, '-qp_i')).toBe('24')
+    expect(pairValue(args, '-qp_p')).toBe('24')
+    expect(pairValue(args, '-quality')).toBe('quality')
+    expect(args).not.toContain('-cq')
+  })
+
   it('VP9 软件编码带 row-mt 与 cpu-used', () => {
     const spec = makeSpec({
       container: 'mkv',

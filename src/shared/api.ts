@@ -10,6 +10,7 @@ import type {
   EstimateInput,
   EstimateResult,
   FfmpegStatus,
+  HardwareStatus,
   InstallProgress,
   JobRecord,
   JobSpec,
@@ -28,6 +29,8 @@ export interface AppStatus {
   settings: AppSettings
   ffmpeg: FfmpegStatus
   capabilities: Capabilities | null
+  /** 硬件编码器实测结果（简易模式的 GPU 选项依赖它）。 */
+  hardware: HardwareStatus
   /** 服务版本，便于排查浏览器缓存问题。 */
   version: string
   /** 当前输出目录等运行期信息可在此扩展。 */
@@ -69,6 +72,8 @@ export interface ValidateRequest {
     sourceWidth?: number | null
     sourceHeight?: number | null
     outputFileName?: string | null
+    /** 当前 ffmpeg 实际包含的编码器（用于提前拦截不可用编码器）。 */
+    availableEncoders?: string[] | null
   }
 }
 
@@ -132,6 +137,7 @@ export const API_ROUTES = {
   ffmpegRefresh: 'POST /api/ffmpeg/refresh',
   ffmpegPath: 'POST /api/ffmpeg/path',
   ffmpegInstall: 'POST /api/ffmpeg/install',
+  hardwareProbe: 'POST /api/hw/probe',
   settingsGet: 'GET /api/settings',
   settingsPut: 'PUT /api/settings',
   probe: 'POST /api/probe',

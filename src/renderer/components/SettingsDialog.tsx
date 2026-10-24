@@ -54,6 +54,19 @@ export default function SettingsDialog({ onClose }: Props): React.JSX.Element {
             />
           </label>
           <label>
+            默认硬件加速
+            <select
+              value={settings.defaultHwMode ?? 'auto'}
+              onChange={(event) =>
+                void updateSettings({ defaultHwMode: event.target.value as 'auto' | 'cpu' | 'gpu' })
+              }
+            >
+              <option value="auto">自动检测 / 自动选择</option>
+              <option value="cpu">使用 CPU</option>
+              <option value="gpu">使用 GPU（不可用时自动回退）</option>
+            </select>
+          </label>
+          <label>
             默认冲突策略
             <select
               value={settings.defaultConflict}

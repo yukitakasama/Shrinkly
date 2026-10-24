@@ -38,7 +38,7 @@ export const videoOptionsSchema = z.object({
   codec: videoCodecSchema,
   encoder: z.string().min(1).max(64).nullable(),
   rateControl: z.enum(['crf', 'abr', 'pass2']),
-  crf: z.number().int('必须是整数').min(0).max(63).nullable(),
+  crf: z.number().int('必须是整数').min(0, '不能小于 0').max(63, '不能大于 63').nullable(),
   bitrateKbps: z
     .number()
     .min(MIN_VIDEO_BITRATE_KBPS, `不能低于 ${MIN_VIDEO_BITRATE_KBPS} kbps`)
@@ -46,7 +46,11 @@ export const videoOptionsSchema = z.object({
     .nullable(),
   width: evenDimension.nullable(),
   height: evenDimension.nullable(),
-  frameRate: z.number().min(MIN_FRAME_RATE).max(MAX_FRAME_RATE).nullable(),
+  frameRate: z
+    .number()
+    .min(MIN_FRAME_RATE, `不能低于 ${MIN_FRAME_RATE}`)
+    .max(MAX_FRAME_RATE, `不能高于 ${MAX_FRAME_RATE}`)
+    .nullable(),
   preset: z.string().max(32).nullable(),
   profile: z.string().max(32).nullable(),
   level: z.string().max(16).nullable(),
@@ -292,9 +296,32 @@ export interface ValidateContext {
   outputFileName?: string | null
 }
 
+/**
+ * 校验任意输入（包括结构本身不合法的请求体）。
+ *
+ * `/api/validate` 必须返回逐项错误，而不是用 400 把整个请求打回：像奇数宽高、
+ * 帧率超过 120 这类问题在 schema 阶段就会失败，若直接抛错，界面只剩一条转瞬即逝
+ * 的 toast，还会误以为可以开始转换。
+ */
+export function validateJobSpecInput(input: unknown, context: ValidateContext = {}): ValidationResult {
+  const parsed = jobSpecSchema.safeParse(input)
+  if (!parsed.success) {
+    return {
+      ok: false,
+      errors: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'spec',
+        code: 'SCHEMA_INVALID',
+        message: issue.message,
+        hint: '请检查该字段的取值。'
+      })),
+      warnings: []
+    }
+  }
+  return validateJobSpec(parsed.data, context)
+}
+
 /** 校验完整任务参数，返回错误与提示。 */
-export function validateJobSpec(spec: JobSpec, context: ValidateContext = {}): ValidationResult {
-  const errors: ValidationIssue[] = []
+export function validateJobSpec(spec: JobSpec, context: ValidateContext = {}): ValidationResult {  const errors: ValidationIssue[] = []
   const warnings: ValidationIssue[] = []
 
   const parsed = jobSpecSchema.safeParse(spec)

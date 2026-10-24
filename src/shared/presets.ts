@@ -300,6 +300,42 @@ export function isAudioCodecSupported(container: ContainerFormat, codec: AudioCo
   return CONTAINER_INFO[container].audio.includes(codec)
 }
 
+export interface CodecRemapResult {
+  videoCodec: VideoCodec
+  audioCodec: AudioCodec
+  /** 因切换容器而被迫改变的编码说明（用于界面提示）。 */
+  changes: string[]
+}
+
+/**
+ * 切换输出容器时，把不兼容的视频 / 音频编码映射到该容器支持的第一项。
+ *
+ * 只做「保底可用」的映射：优先保留同族编码（例如 HEVC 在 MOV 里仍然可用），
+ * 因此不会把用户的选择随意改成别的编码族。
+ */
+export function remapCodecsForContainer(
+  container: ContainerFormat,
+  videoCodec: VideoCodec,
+  audioCodec: AudioCodec,
+  audioMode: 'encode' | 'copy' | 'none'
+): CodecRemapResult {
+  const info = CONTAINER_INFO[container]
+  const changes: string[] = []
+  let nextVideo = videoCodec
+  let nextAudio = audioCodec
+
+  if (!info.video.includes(videoCodec)) {
+    nextVideo = info.video[0]
+    changes.push(`视频编码 ${VIDEO_CODEC_LABELS[videoCodec]} 不受 ${info.label} 支持，已改为 ${VIDEO_CODEC_LABELS[nextVideo]}`)
+  }
+  if (audioMode === 'encode' && !info.audio.includes(audioCodec)) {
+    nextAudio = info.audio[0]
+    changes.push(`音频编码 ${AUDIO_CODEC_LABELS[audioCodec]} 不受 ${info.label} 支持，已改为 ${AUDIO_CODEC_LABELS[nextAudio]}`)
+  }
+
+  return { videoCodec: nextVideo, audioCodec: nextAudio, changes }
+}
+
 /** 依据编码族与硬件加速开关选择编码器 id。 */
 export function preferredEncoder(codec: VideoCodec, hwAccel: boolean, backend: Exclude<HwAccelKind, 'none'> = 'nvenc'): string {
   const profile = CODEC_PROFILES[codec]

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeExtraArgs, tokenizeArgs, validateJobSpec, validateNameTemplate } from '../../src/shared/validation'
+import {
+  sanitizeExtraArgs,
+  tokenizeArgs,
+  validateJobSpec,
+  validateJobSpecInput,
+  validateNameTemplate
+} from '../../src/shared/validation'
 import { makeSpec } from './fixtures'
 
 function codes(field: 'errors' | 'warnings', spec = makeSpec(), context = {}) {
@@ -201,5 +207,34 @@ describe('编码器校验', () => {
   it('编码器不存在时报错', () => {
     const spec = makeSpec({ video: { ...makeSpec().video, encoder: 'h264_nvenc' } })
     expect(codes('errors', spec, { availableEncoders: ['libx264', 'libx265'] })).toContain('ENCODER_MISSING')
+  })
+})
+
+describe('validateJobSpecInput（接口层容错）', () => {
+  it('合法 spec 返回 ok', () => {
+    const result = validateJobSpecInput(makeSpec())
+    expect(result.ok).toBe(true)
+  })
+
+  it('奇数宽高返回结构化 schema 错误，而不是抛异常', () => {
+    const spec = makeSpec({ video: { ...makeSpec().video, width: 1921, height: 1080 } })
+    const result = validateJobSpecInput(spec)
+    expect(result.ok).toBe(false)
+    expect(result.errors.map((issue) => issue.code)).toContain('SCHEMA_INVALID')
+    expect(result.errors.some((issue) => issue.message.includes('偶数'))).toBe(true)
+  })
+
+  it('帧率超限返回结构化错误', () => {
+    const spec = makeSpec({ video: { ...makeSpec().video, frameRate: 144 } })
+    const result = validateJobSpecInput(spec)
+    expect(result.ok).toBe(false)
+    expect(result.errors.map((issue) => issue.code)).toContain('SCHEMA_INVALID')
+  })
+
+  it('结构完全错误时也返回错误列表', () => {
+    const result = validateJobSpecInput({ inputPath: 'x.mp4' })
+    expect(result.ok).toBe(false)
+    expect(result.errors.length).toBeGreaterThan(0)
+    expect(result.errors.every((issue) => issue.code === 'SCHEMA_INVALID')).toBe(true)
   })
 })

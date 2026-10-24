@@ -105,7 +105,8 @@ export function runFfmpeg(options: RunOptions): RunHandle {
       fps,
       speed,
       etaSec: etaSec === null ? null : Math.round(etaSec),
-      bytes
+      bytes,
+      updatedAt: now
     })
   }
 

@@ -134,6 +134,18 @@ export function buildJobSpec(params: BuildSpecParams): JobSpec {
   }
 }
 
+/**
+ * 输出文件名预览（简单替换 {name} / {ext}）。
+ *
+ * 只用于界面提示扩展名，实际命名由服务端 `renderNameTemplate` 统一处理。
+ */
+export function previewOutputName(fileName: string, container: ContainerFormat, template = '{name}_compressed.{ext}'): string {
+  const extension = CONTAINER_INFO[container].extension
+  const base = fileName.replace(/\.[^.]+$/, '')
+  const filled = template.replace(/\{name\}/g, base).replace(/\{ext\}/g, extension)
+  return /\.[A-Za-z0-9]{2,5}$/.test(filled) ? filled : `${filled}.${extension}`
+}
+
 /** 输出路径预览（用于命令摘要与扩展名提示）。 */
 export function previewOutputPath(spec: JobSpec, directory: string | null, fileName: string): string {
   const extension = CONTAINER_INFO[spec.container].extension

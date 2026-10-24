@@ -6,8 +6,8 @@
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import type { ServerStatus } from '../shared/api'
-import type { AppSettings, Capabilities, FfmpegStatus, InstallProgress } from '../shared/types'
-import { probeCapabilities } from './ffmpeg/capabilities'
+import type { AppSettings, Capabilities, FfmpegStatus, HardwareStatus, InstallProgress } from '../shared/types'
+import { clearHardwareTestCache, probeCapabilities, probeHardwareEncoders } from './ffmpeg/capabilities'
 import { commonInstallCandidates, locateFfmpeg, verifyBinary, wingetInstallCandidates } from './ffmpeg/locator'
 import { JobQueue } from './jobs/queue'
 import { Logger } from './logger'
@@ -34,6 +34,14 @@ export class AppState {
     message: '正在检测 ffmpeg…'
   }
   private capabilities: Capabilities | null = null
+  private hardware: HardwareStatus = {
+    state: 'idle',
+    tests: [],
+    usable: [],
+    message: '尚未检测硬件编码器',
+    probedAt: null
+  }
+  private hardwarePromise: Promise<HardwareStatus> | null = null
   private installRunning = false
 
   constructor(
@@ -73,8 +81,63 @@ export class AppState {
     return this.capabilities
   }
 
+  getHardware(): HardwareStatus {
+    return this.hardware
+  }
+
   getStatus(): ServerStatus {
-    return { settings: this.settings.get(), ffmpeg: this.ffmpegStatus, capabilities: this.capabilities }
+    return {
+      settings: this.settings.get(),
+      ffmpeg: this.ffmpegStatus,
+      capabilities: this.capabilities,
+      hardware: this.hardware
+    }
+  }
+
+  /**
+   * 实测硬件编码器（带进程内去重）。
+   *
+   * 首次调用会真的跑一次极短编码，因此可能耗时数秒；界面通过 probing 状态
+   * 显示「正在检测」，检测完成后 GPU 选项才变为可选。
+   */
+  async probeHardware(force = false): Promise<HardwareStatus> {
+    const ffmpegPath = this.getFfmpegPath()
+    if (!ffmpegPath) {
+      this.hardware = {
+        state: 'ready',
+        tests: [],
+        usable: [],
+        message: '未检测到可用的 ffmpeg，无法检测硬件编码器',
+        probedAt: Date.now()
+      }
+      return this.hardware
+    }
+    if (this.hardwarePromise) return this.hardwarePromise
+    if (!force && this.hardware.state === 'ready') return this.hardware
+
+    if (force) clearHardwareTestCache()
+    this.hardware = { ...this.hardware, state: 'probing', message: '正在检测硬件编码器…' }
+    this.hardwarePromise = (async () => {
+      try {
+        const result = await probeHardwareEncoders(ffmpegPath, this.capabilities)
+        this.hardware = result
+        this.logger.info('ffmpeg', `硬件编码检测：${result.message}`)
+        return result
+      } catch (error) {
+        this.hardware = {
+          state: 'ready',
+          tests: [],
+          usable: [],
+          message: `硬件编码检测失败：${error instanceof Error ? error.message : String(error)}`,
+          probedAt: Date.now()
+        }
+        this.logger.warn('ffmpeg', this.hardware.message)
+        return this.hardware
+      } finally {
+        this.hardwarePromise = null
+      }
+    })()
+    return this.hardwarePromise
   }
 
   /** 重新定位 ffmpeg，并（有效时）刷新编码器能力。 */
@@ -99,7 +162,15 @@ export class AppState {
       }
     } else {
       this.capabilities = null
+      this.hardware = {
+        state: 'ready',
+        tests: [],
+        usable: [],
+        message: '未检测到可用的 ffmpeg，无法检测硬件编码器',
+        probedAt: Date.now()
+      }
     }
+    if (this.getFfmpegPath()) void this.probeHardware(true)
     return this.getStatus()
   }
 

@@ -13,7 +13,7 @@ import { probeFile } from '../ffmpeg/probe'
 import { expandPaths, isMediaFile } from '../fs/expand'
 import type { AppState } from '../state'
 import { computeEstimate } from '../../shared/estimate'
-import { jobSpecSchema, validateJobSpec } from '../../shared/validation'
+import { jobSpecSchema, validateJobSpec, validateJobSpecInput } from '../../shared/validation'
 import type {
   AddJobRequest,
   AppStatus,
@@ -175,6 +175,8 @@ export function registerRoutes(router: Router, deps: RouteDeps): void {
     return state.setCustomPath(ffmpegPath)
   })
   router.post('/api/ffmpeg/install', async () => state.installFfmpeg())
+  router.post('/api/hw/probe', async () => state.probeHardware(true))
+  router.post('/api/hw/probe', async () => state.probeHardware(true))
 
   router.get('/api/settings', () => state.settings.get())
   router.put('/api/settings', async ({ body }: RouteContext) => {
@@ -205,8 +207,8 @@ export function registerRoutes(router: Router, deps: RouteDeps): void {
 
   router.post('/api/validate', async ({ body }: RouteContext) => {
     const request = asRecord(body) as unknown as ValidateRequest
-    const spec = parseSpec({ spec: request.spec })
-    return validateJobSpec(spec, request.context ?? {})
+    // 这里不能用 parseSpec：schema 错误也要逐项返回给界面，而不是 400 打回。
+    return validateJobSpecInput(request.spec, request.context ?? {})
   })
 
   router.post('/api/preview-args', async ({ body }: RouteContext) => {

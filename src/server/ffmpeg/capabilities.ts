@@ -6,7 +6,15 @@
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { Capabilities, EncoderCapability, HwAccelKind, VideoCodec } from '../../shared/types'
+import { HW_BACKEND_LABELS, hwEncodersForCodec } from '../../shared/hardware'
+import type {
+  Capabilities,
+  EncoderCapability,
+  HardwareEncoderTest,
+  HardwareStatus,
+  HwAccelKind,
+  VideoCodec
+} from '../../shared/types'
 import { runCapture } from './exec'
 import { fileMtime } from './locator'
 
@@ -63,6 +71,11 @@ export function buildEncoderCapabilities(videoEncoders: string[], hwaccels: stri
   return result
 }
 
+/** 清空实测缓存（用户点「重新检测」时使用）。 */
+export function clearHardwareTestCache(): void {
+  hwTestCache.clear()
+}
+
 /** 单次硬件编码实测（一次极短的 lavfi 编码），结果在进程内缓存。 */
 const hwTestCache = new Map<string, boolean>()
 
@@ -88,6 +101,65 @@ export async function testHardwareEncoder(ffmpegPath: string, encoder: string, t
   const usable = result.code === 0 && !result.timedOut
   hwTestCache.set(cacheKey, usable)
   return usable
+}
+
+const HW_CODECS: VideoCodec[] = ['h264', 'hevc', 'av1', 'vp9']
+
+/**
+ * 逐项实测硬件编码器。
+ *
+ * 只测「ffmpeg 编译进来」的编码器；实测能真正跑通一次编码才算可用，
+ * 这样驱动缺失 / 显卡被占用的机器不会在界面里显示「可用 GPU」。
+ */
+export async function probeHardwareEncoders(
+  ffmpegPath: string,
+  capabilities: Capabilities | null
+): Promise<HardwareStatus> {
+  const compiled = new Set(
+    (capabilities?.videoEncoders ?? [])
+      .filter((encoder) => encoder.kind !== 'software' && encoder.available)
+      .map((encoder) => encoder.id)
+  )
+
+  const jobs: Array<{ codec: VideoCodec; encoder: string; kind: Exclude<HwAccelKind, 'none'> }> = []
+  for (const codec of HW_CODECS) {
+    for (const candidate of hwEncodersForCodec(codec)) {
+      jobs.push({ codec, encoder: candidate.encoder, kind: candidate.kind })
+    }
+  }
+
+  const tests: HardwareEncoderTest[] = await Promise.all(
+    jobs.map(async (job) => {
+      if (!compiled.has(job.encoder)) {
+        return {
+          ...job,
+          usable: false,
+          reason: `当前 ffmpeg 未包含 ${job.encoder}（${HW_BACKEND_LABELS[job.kind]}）`
+        }
+      }
+      const usable = await testHardwareEncoder(ffmpegPath, job.encoder)
+      return {
+        ...job,
+        usable,
+        reason: usable
+          ? `已检测到 ${HW_BACKEND_LABELS[job.kind]}（${job.encoder}）`
+          : `${job.encoder} 初始化失败：可能是显卡驱动过旧、设备被占用或当前会话无 GPU 权限`
+      }
+    })
+  )
+
+  const usable: HardwareStatus['usable'] = []
+  for (const codec of HW_CODECS) {
+    const hit = tests.find((test) => test.codec === codec && test.usable)
+    if (hit) usable.push({ codec, encoder: hit.encoder, kind: hit.kind })
+  }
+
+  const message =
+    usable.length > 0
+      ? `可用硬件编码：${usable.map((entry) => `${entry.codec.toUpperCase()} → ${entry.encoder}`).join('，')}`
+      : '未检测到可用的硬件编码器，将使用 CPU 编码'
+
+  return { state: 'ready', tests, usable, message, probedAt: Date.now() }
 }
 
 interface CapabilityCacheFile {

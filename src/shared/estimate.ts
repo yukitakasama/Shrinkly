@@ -276,7 +276,7 @@ function errorResult(
     error,
     container: input.container,
     videoCodec: input.videoCodec,
-    encoder: preferredEncoder(input.videoCodec, input.hwAccel),
+    encoder: input.hwAccel && input.hwEncoder ? input.hwEncoder : preferredEncoder(input.videoCodec, input.hwAccel),
     width: video?.width ?? 0,
     height: video?.height ?? 0,
     sourceWidth: video?.width ?? 0,
@@ -341,7 +341,7 @@ export function computeEstimate(input: EstimateInput): EstimateResult {
 
   const quality = clampQuality(input.quality)
   const profile = CODEC_PROFILES[input.videoCodec]
-  const encoder = preferredEncoder(input.videoCodec, input.hwAccel)
+  const encoder = input.hwAccel && input.hwEncoder ? input.hwEncoder : preferredEncoder(input.videoCodec, input.hwAccel)
   const sourceFps = video.frameRate > 0 ? video.frameRate : 30
   const durationSec = media.durationSec && media.durationSec > 0 ? media.durationSec : null
   const audio = estimateAudio(input, quality, durationSec)
@@ -495,7 +495,7 @@ export function computeEstimate(input: EstimateInput): EstimateResult {
     rateControl = 'crf'
 
     explanations.push(
-      `质量 ${quality}（${qualityLabel(quality)}）→ ${profile.softwareEncoder} ${input.hwAccel ? 'CQ' : 'CRF'} ${crf}` +
+      `质量 ${quality}（${qualityLabel(quality)}）→ ${encoder} ${input.hwAccel ? 'CQ' : 'CRF'} ${crf}` +
         (input.hwAccel ? '（硬件编码同画质需略高数值）' : '')
     )
     explanations.push(

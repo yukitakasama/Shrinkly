@@ -14,7 +14,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   outputDirectory: null,
   nameTemplate: '{name}_compressed.{ext}',
   concurrency: 1,
-  hwAccel: false
+  hwAccel: false,
+  defaultHwMode: 'auto'
 }
 
 const settingsSchema = z.object({
@@ -24,7 +25,8 @@ const settingsSchema = z.object({
   outputDirectory: z.string().max(1024).nullable(),
   nameTemplate: z.string().min(1).max(200),
   concurrency: z.number().int().min(1).max(4),
-  hwAccel: z.boolean()
+  hwAccel: z.boolean(),
+  defaultHwMode: z.enum(['auto', 'cpu', 'gpu']).default('auto')
 })
 
 export class SettingsStore {

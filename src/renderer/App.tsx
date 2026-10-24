@@ -6,6 +6,7 @@ import ImportBar from './components/ImportBar'
 import InfoPanel from './components/InfoPanel'
 import JobList from './components/JobList'
 import LogDrawer from './components/LogDrawer'
+import ProgressPanel from './components/ProgressPanel'
 import ResultPanel from './components/ResultPanel'
 import SettingsDialog from './components/SettingsDialog'
 import SimpleMode from './components/SimpleMode'
@@ -64,6 +65,7 @@ export default function App(): React.JSX.Element {
               高级模式
             </button>
           </nav>
+          <ProgressPanel />
           <InfoPanel />
           <ResultPanel />
           {mode === 'simple' ? <SimpleMode /> : <AdvancedMode />}

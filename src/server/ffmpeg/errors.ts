@@ -95,7 +95,7 @@ const STDERR_RULES: PatternRule[] = [
     hint: '请确认文件仍然存在、路径正确，且没有被其他程序独占。'
   },
   {
-    test: /(Cannot load|No capable devices|InitializeEncoder failed|Failed to initialise|OpenEncodeSessionEx failed|device.*not.*(found|available)|No NVENC capable devices)/i,
+    test: /(Cannot load|No NVENC capable devices|No capable devices|InitializeEncoder failed|Failed to initialise|OpenEncodeSessionEx failed|device.*not.*(found|available)|No NVENC capable devices)/i,
     code: 'HW_ENCODER_UNAVAILABLE',
     title: '硬件编码不可用',
     detail: '硬件编码器初始化失败，可能显卡驱动不支持或设备被占用。',
@@ -167,9 +167,32 @@ export function classifyFfmpegFailure(stderr: string, exitCode: number | null): 
   }
 }
 
-/** stderr 是否暗示硬件编码初始化失败（用于自动回退）。 */
+/**
+ * stderr 是否暗示「编码器没能打开」（用于硬件编码自动回退）。
+ *
+ * 其中 `Error while opening encoder` 这类通用错误也可能是软件编码器报的，
+ * 因此调用方必须先确认当前用的是硬件编码器，再据此回退。
+ */
 export function isHardwareFailure(stderr: string): boolean {
-  return /(Cannot load|No capable devices|InitializeEncoder failed|Failed to initialise|OpenEncodeSessionEx failed|hw_frames_ctx|Function not implemented)/i.test(
+  return /(Cannot load|No NVENC capable devices|No capable devices|InitializeEncoder failed|Failed to initialise|OpenEncodeSessionEx failed|hw_frames_ctx|Function not implemented|Error setting option .* to value|Error applying encoder options|Unable to parse .* option value|Driver does not support|MFX session|mfx implementation|Error while opening encoder|Could not open encoder)/i.test(
     stderr
   )
+}
+
+/**
+ * 从 stderr 中挑出最能说明「为什么 GPU 起不来」的一行。
+ *
+ * 回退成功时用户往往看不到失败详情，这里保留首条相关错误作为回退原因展示。
+ */
+export function hardwareFailureReason(stderr: string, encoder: string): string {
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  const match = lines.find((line) =>
+    /(Cannot load|No NVENC capable devices|No capable devices|InitializeEncoder failed|Failed to initialise|OpenEncodeSessionEx failed|hw_frames_ctx|Function not implemented|Driver does not support|Error setting option .* to value|Error applying encoder options|Unable to parse .* option value|MFX session|mfx implementation|Error while opening encoder|Could not open encoder)/i.test(
+      line
+    )
+  )
+  return match ?? `${encoder} 初始化失败（未返回具体原因，详见日志）`
 }

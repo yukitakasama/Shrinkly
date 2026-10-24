@@ -29,6 +29,10 @@ export type JobStatus = 'queued' | 'preparing' | 'running' | 'done' | 'failed' |
 /** 硬件加速后端。 */
 export type HwAccelKind = 'none' | 'nvenc' | 'qsv' | 'amf'
 
+/** 用户对硬件加速的选择：自动 / 强制 CPU / 强制 GPU。 */
+export type HwMode = 'auto' | 'cpu' | 'gpu'
+
+
 // ---------------------------------------------------------------------------
 // 媒体信息（ffprobe 解析结果）
 // ---------------------------------------------------------------------------
@@ -168,6 +172,8 @@ export interface ProgressInfo {
   etaSec: number | null
   /** 已写出字节数。 */
   bytes: number | null
+  /** 最近一次收到进度的时间戳（ms）；从未收到为 null。 */
+  updatedAt: number | null
 }
 
 export interface JobError {
@@ -196,6 +202,8 @@ export interface JobResult {
   audioCodec: string | null
   /** 是否发生过硬件编码回退。 */
   hwFallback: boolean
+  /** 回退原因（ffmpeg 首条相关错误），未回退为 null。 */
+  hwFallbackReason: string | null
   logPath: string | null
 }
 
@@ -233,6 +241,8 @@ export interface EstimateInput {
   /** 目标体积（MB）；非 null 时进入目标体积反解模式。 */
   targetSizeMB: number | null
   hwAccel: boolean
+  /** 硬件编码器 id（hwAccel 为 true 时使用；null 表示按默认后端推断）。 */
+  hwEncoder?: string | null
 }
 
 export interface EstimateResult {
@@ -326,6 +336,29 @@ export interface Capabilities {
   probedAt: number
 }
 
+/** 单个硬件编码器的实测结果。 */
+export interface HardwareEncoderTest {
+  codec: VideoCodec
+  encoder: string
+  kind: Exclude<HwAccelKind, 'none'>
+  /** 是否真的能编码（已用一次极短编码实测）。 */
+  usable: boolean
+  /** 面向用户的原因（不可用时必填）。 */
+  reason: string
+}
+
+/** 硬件加速整体状态（面向简易模式的三态选择）。 */
+export interface HardwareStatus {
+  state: 'idle' | 'probing' | 'ready'
+  /** 实测过的候选编码器（每个 codec 最多 3 个后端）。 */
+  tests: HardwareEncoderTest[]
+  /** 每个 codec 实际可用的第一个后端。 */
+  usable: Array<{ codec: VideoCodec; encoder: string; kind: Exclude<HwAccelKind, 'none'> }>
+  /** 面向用户的中文总结。 */
+  message: string
+  probedAt: number | null
+}
+
 // ---------------------------------------------------------------------------
 // 设置
 // ---------------------------------------------------------------------------
@@ -340,6 +373,8 @@ export interface AppSettings {
   /** 并发任务上限，默认 1。 */
   concurrency: number
   hwAccel: boolean
+  /** 简易模式默认硬件加速选择，默认 auto。 */
+  defaultHwMode: HwMode
 }
 
 export interface InstallProgress {

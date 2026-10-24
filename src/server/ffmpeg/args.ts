@@ -6,7 +6,15 @@
  * - 容器与编码的硬约束在此最后兜底（`validateJobSpec` 已提前拦截）；
  * - `copy` 音轨时不得再带 `-b:a/-ac/-ar`。
  */
-import { AUDIO_ENCODER, CODEC_PROFILES, CONTAINER_MUXER, DEFAULT_PRESET, HW_PRESET_MAP, isHardwareEncoder } from '../../shared/presets'
+import {
+  AUDIO_ENCODER,
+  CODEC_PROFILES,
+  CONTAINER_MUXER,
+  DEFAULT_PRESET,
+  HW_PRESET_MAP,
+  hwBackendOf,
+  isHardwareEncoder
+} from '../../shared/presets'
 import type { JobSpec, MediaInfo } from '../../shared/types'
 
 export interface BuildArgsOptions {
@@ -29,6 +37,32 @@ export interface BuildArgsOptions {
 
 const IS_WINDOWS = process.platform === 'win32'
 
+/** QSV 只接受 veryfast 及更慢的预设，超快档位统一折到 veryfast。 */
+const QSV_PRESET_MAP: Record<string, string> = {
+  ultrafast: 'veryfast',
+  superfast: 'veryfast',
+  veryfast: 'veryfast',
+  faster: 'faster',
+  fast: 'fast',
+  medium: 'medium',
+  slow: 'slow',
+  slower: 'slower',
+  veryslow: 'veryslow'
+}
+
+/** AMF 只有三档质量预设。 */
+const AMF_QUALITY_MAP: Record<string, string> = {
+  ultrafast: 'speed',
+  superfast: 'speed',
+  veryfast: 'speed',
+  faster: 'speed',
+  fast: 'speed',
+  medium: 'balanced',
+  slow: 'quality',
+  slower: 'quality',
+  veryslow: 'quality'
+}
+
 /** 构造完整的 ffmpeg 参数数组。 */
 export function buildFfmpegArgs(options: BuildArgsOptions): string[] {
   const { spec, input, output } = options
@@ -44,12 +78,25 @@ export function buildFfmpegArgs(options: BuildArgsOptions): string[] {
   const encoder = video.encoder ?? CODEC_PROFILES[video.codec].softwareEncoder
   const profile = CODEC_PROFILES[video.codec]
   const hardware = isHardwareEncoder(encoder)
+  const backend = hardware ? hwBackendOf(encoder) : 'none'
   args.push('-c:v', encoder)
 
   if (video.rateControl === 'crf') {
     const crf = video.crf ?? 23
-    if (hardware) {
+    if (backend === 'nvenc') {
       args.push('-rc', 'vbr', '-cq', String(crf))
+      if (options.bitrateCapKbps && options.bitrateCapKbps > 0) {
+        args.push('-b:v', `${Math.round(options.bitrateCapKbps)}k`)
+      }
+    } else if (backend === 'qsv') {
+      // QSV 用 global_quality 表达「恒定质量」。
+      args.push('-global_quality', String(crf))
+      if (options.bitrateCapKbps && options.bitrateCapKbps > 0) {
+        args.push('-b:v', `${Math.round(options.bitrateCapKbps)}k`)
+      }
+    } else if (backend === 'amf') {
+      // AMF 用 CQP 表达恒定质量（I / P 帧取同一值）。
+      args.push('-rc', 'cqp', '-qp_i', String(crf), '-qp_p', String(crf))
       if (options.bitrateCapKbps && options.bitrateCapKbps > 0) {
         args.push('-b:v', `${Math.round(options.bitrateCapKbps)}k`)
       }
@@ -71,8 +118,12 @@ export function buildFfmpegArgs(options: BuildArgsOptions): string[] {
 
   // 预设 / cpu-used
   const preset = video.preset ?? DEFAULT_PRESET
-  if (hardware) {
+  if (backend === 'nvenc') {
     args.push('-preset', HW_PRESET_MAP[preset] ?? 'p5')
+  } else if (backend === 'qsv') {
+    args.push('-preset', QSV_PRESET_MAP[preset] ?? 'medium')
+  } else if (backend === 'amf') {
+    args.push('-quality', AMF_QUALITY_MAP[preset] ?? 'balanced')
   } else if (video.codec === 'h264' || video.codec === 'hevc') {
     args.push('-preset', preset)
   } else if (profile.cpuUsed !== null) {

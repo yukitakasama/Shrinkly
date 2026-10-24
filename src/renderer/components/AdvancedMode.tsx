@@ -32,6 +32,11 @@ export default function AdvancedMode(): React.JSX.Element {
   const startQueue = useAppStore((state) => state.startQueue)
   const validation = useAppStore((state) => state.validation)
   const ffmpegOk = useAppStore((state) => state.status?.ffmpeg.state === 'ok')
+  const acceleration = useAppStore((state) => state.acceleration)
+  const jobs = useAppStore((state) => state.jobs)
+  const starting = useAppStore((state) => state.starting)
+  const busy = jobs.some((item) => item.status === 'running' || item.status === 'preparing')
+  const queuedCount = jobs.filter((item) => item.status === 'queued').length
 
   const auto = {
     crf: estimate?.crf ?? 24,
@@ -242,6 +247,9 @@ export default function AdvancedMode(): React.JSX.Element {
           <div className="field-inline">
             {toggle('硬件加速（失败自动回退）', advanced?.hwAccel ?? false, (next) => setAdvanced({ hwAccel: next }))}
           </div>
+          {advanced?.hwAccel && acceleration && (
+            <p className={`hint ${acceleration.compute === 'gpu' ? '' : 'is-warning'}`}>{acceleration.reason}</p>
+          )}
         </div>
       </details>
 
@@ -344,11 +352,13 @@ export default function AdvancedMode(): React.JSX.Element {
         <button
           type="button"
           className="primary"
-          disabled={!job?.media || !ffmpegOk || !estimate?.ok || !validation?.ok}
+          disabled={!job?.media || !ffmpegOk || !estimate?.ok || !validation?.ok || queuedCount === 0 || busy || starting}
           onClick={() => void startQueue()}
         >
-          开始转换
+          {starting ? '正在启动…' : '开始压缩'}
         </button>
+        {queuedCount > 0 && !busy && <span className="hint">待处理 {queuedCount} 个文件</span>}
+        {busy && <span className="hint">队列正在运行，可先取消再调整参数</span>}
         {validation && !validation.ok && <span className="hint">存在参数错误，请检查上方提示</span>}
       </div>
 

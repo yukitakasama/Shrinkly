@@ -18,7 +18,7 @@ import type {
   ProgressInfo
 } from '../../shared/types'
 import type { Logger } from '../logger'
-import { classifyFfmpegFailure, isHardwareFailure, asJobError, AppError } from '../ffmpeg/errors'
+import { classifyFfmpegFailure, hardwareFailureReason, isHardwareFailure, asJobError, AppError } from '../ffmpeg/errors'
 import { buildFfmpegArgs } from '../ffmpeg/args'
 import { probeFile } from '../ffmpeg/probe'
 import { runFfmpeg } from '../ffmpeg/runner'
@@ -56,7 +56,7 @@ function createRecord(input: EnqueueInput, order: number): JobRecord {
     inputPath: input.spec.inputPath,
     fileName,
     status: 'queued',
-    progress: { percent: 0, timeSec: 0, frame: null, fps: null, speed: null, etaSec: null, bytes: null },
+    progress: { percent: 0, timeSec: 0, frame: null, fps: null, speed: null, etaSec: null, bytes: null, updatedAt: null },
     spec: input.spec,
     media: input.media,
     estimate: input.estimate,
@@ -75,7 +75,13 @@ export class JobQueue {
   private readonly running = new Map<string, { cancel: () => void }>()
   private activeCount = 0
   private nextOrder = 1
-  private started = false
+  /**
+   * 用户点击「开始压缩」时被授权的任务 id。
+   *
+   * 只有在这里登记过的任务才会被执行：之后新导入 / 改参数都不会自动开跑，
+   * 满足「必须由用户显式启动」的约束。
+   */
+  private readonly armed = new Set<string>()
 
   constructor(private readonly deps: QueueDeps) {}
 
@@ -93,14 +99,17 @@ export class JobQueue {
     return this.running.has(id)
   }
 
-  /** 开始处理队列；未开始时只入队不执行，便于先调整参数。 */
+  /** 开始处理当前排队中的任务；之后新入队的任务仍需再次点击开始。 */
   start(): void {
-    this.started = true
+    for (const job of this.list()) {
+      if (job.status === 'queued') this.armed.add(job.id)
+    }
     this.pump()
   }
 
+  /** 是否仍有已授权但未跑完的任务（用于界面判断「开始/取消」）。 */
   isStarted(): boolean {
-    return this.started
+    return this.armed.size > 0 || this.activeCount > 0
   }
 
   enqueue(input: EnqueueInput): JobRecord {
@@ -110,7 +119,7 @@ export class JobQueue {
     this.order.push(record.id)
     this.deps.logger.info('queue', `入队 ${record.fileName}（${record.spec.container.toUpperCase()} / ${record.spec.video.codec}）`)
     this.deps.onJobUpdate(record)
-    if (this.started) this.pump()
+    // 注意：这里刻意不 pump。导入 / 改参数都不是「开始压缩」，必须由用户显式触发。
     return record
   }
 
@@ -142,6 +151,7 @@ export class JobQueue {
     const job = this.jobs.get(id)
     if (!job) return
     if (this.running.has(id)) this.cancel(id)
+    this.armed.delete(id)
     this.jobs.delete(id)
     this.order = this.order.filter((jobId) => jobId !== id)
   }
@@ -161,6 +171,7 @@ export class JobQueue {
       return
     }
     if (job && job.status === 'queued') {
+      this.armed.delete(id)
       job.status = 'canceled'
       job.finishedAt = Date.now()
       this.deps.onJobUpdate(job)
@@ -168,15 +179,18 @@ export class JobQueue {
   }
 
   cancelAll(): void {
+    // 等待中的任务直接取消，正在运行的任务走进程终止；授权集合一并清空，
+    // 避免取消后又被 pump 起来。
+    this.armed.clear()
     for (const id of this.order) this.cancel(id)
   }
 
-  /** 启动排队中的任务（按并发上限填充）。未 start 时不会执行。 */
+  /** 启动已授权且仍在排队的任务（按并发上限填充）。 */
   pump(): void {
-    if (!this.started) return
+    if (this.armed.size === 0) return
     const limit = Math.max(1, this.deps.getConcurrency())
     while (this.activeCount < limit) {
-      const next = this.list().find((job) => job.status === 'queued')
+      const next = this.list().find((job) => job.status === 'queued' && this.armed.has(job.id))
       if (!next) return
       this.activeCount += 1
       void this.runJob(next.id).finally(() => {
@@ -197,7 +211,10 @@ export class JobQueue {
 
   private async runJob(id: string): Promise<void> {
     const job = this.jobs.get(id)
-    if (!job || job.status !== 'queued') return
+    if (!job || job.status !== 'queued') {
+      this.armed.delete(id)
+      return
+    }
 
     let temporary: string | null = null
     const ffmpegPath = this.deps.getFfmpegPath()
@@ -315,18 +332,20 @@ export class JobQueue {
       this.emit(job)
 
       let hwFallback = false
+      let hwFallbackReason: string | null = null
       let outcome = await encodeOnce(job.spec)
       const encoder = job.spec.video.encoder ?? CODEC_PROFILES[job.spec.video.codec].softwareEncoder
 
       if (outcome.code !== 0 && !outcome.canceled && isHardwareEncoder(encoder) && isHardwareFailure(outcome.stderrTail)) {
         hwFallback = true
+        hwFallbackReason = hardwareFailureReason(outcome.stderrTail, encoder)
         const softwareEncoder = CODEC_PROFILES[job.spec.video.codec].softwareEncoder
-        this.log(job, `[hw-fallback] 硬件编码器 ${encoder} 初始化失败，改用 ${softwareEncoder} 重试`)
+        this.log(job, `[hw-fallback] 硬件编码器 ${encoder} 不可用（${hwFallbackReason}），已自动回退 ${softwareEncoder}`)
         const softSpec: JobSpec = {
           ...job.spec,
           video: { ...job.spec.video, encoder: softwareEncoder, hwAccel: false }
         }
-        job.progress = { percent: 0, timeSec: 0, frame: null, fps: null, speed: null, etaSec: null, bytes: null }
+        job.progress = { percent: 0, timeSec: 0, frame: null, fps: null, speed: null, etaSec: null, bytes: null, updatedAt: null }
         outcome = await encodeOnce(softSpec)
       }
 
@@ -334,7 +353,7 @@ export class JobQueue {
         await unlink(temporary).catch(() => undefined)
         job.status = 'canceled'
         job.finishedAt = Date.now()
-        job.progress = { percent: 0, timeSec: 0, frame: null, fps: null, speed: null, etaSec: null, bytes: null }
+        job.progress = { percent: 0, timeSec: 0, frame: null, fps: null, speed: null, etaSec: null, bytes: null, updatedAt: Date.now() }
         this.log(job, '[cancel] 任务已取消，临时文件已删除')
         this.emit(job)
         return
@@ -361,6 +380,7 @@ export class JobQueue {
         elapsedMs: outcome.elapsedMs,
         encoder: actualEncoder,
         hwFallback,
+        hwFallbackReason,
         ffprobePath
       })
 
@@ -380,6 +400,7 @@ export class JobQueue {
       this.emit(job)
     } finally {
       this.running.delete(job.id)
+      this.armed.delete(job.id)
     }
   }
 
@@ -397,9 +418,10 @@ export class JobQueue {
     elapsedMs: number
     encoder: string
     hwFallback: boolean
+    hwFallbackReason: string | null
     ffprobePath: string | null
   }): Promise<JobResult> {
-    const { job, outputPath, elapsedMs, encoder, hwFallback, ffprobePath } = params
+    const { job, outputPath, elapsedMs, encoder, hwFallback, hwFallbackReason, ffprobePath } = params
     let sizeBytes = 0
     let actual = null as Awaited<ReturnType<typeof probeFile>> | null
     try {
@@ -426,6 +448,7 @@ export class JobQueue {
       audioBitrateKbps: actual?.audio?.bitRate ? Math.round(actual.audio.bitRate / 1000) : job.spec.audio.bitrateKbps,
       audioCodec: actual?.audio?.codec ?? (job.spec.audio.mode === 'none' ? null : job.spec.audio.codec),
       hwFallback,
+      hwFallbackReason,
       logPath: null
     }
   }
