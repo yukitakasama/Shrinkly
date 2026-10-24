@@ -68,3 +68,7 @@ credentials.*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ---------- 误生成的 %SystemDrive% 字面目录 ----------
+# 某些子进程缺少 SystemDrive 环境变量时，系统组件会把 %SystemDrive% 当相对路径创建
+%SystemDrive%/
