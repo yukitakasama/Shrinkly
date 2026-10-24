@@ -457,9 +457,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   async updateSettings(patch) {
-    const settings = await window.shrinkly.updateSettings(patch)
+    await window.shrinkly.updateSettings(patch)
     const status = await window.shrinkly.getStatus()
-    set({ status: { ...(status ?? { settings, ffmpeg: get().status?.ffmpeg, capabilities: get().status?.capabilities }), settings } })
+    set({ status })
+    await get().refreshEditor()
   },
 
   async setFfmpegPath(ffmpegPath) {

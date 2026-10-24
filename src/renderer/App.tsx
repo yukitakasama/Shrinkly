@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import FfmpegStatus from './components/FfmpegStatus'
 import DropZone from './components/DropZone'
 import JobList from './components/JobList'
@@ -7,6 +7,7 @@ import SimpleMode from './components/SimpleMode'
 import AdvancedMode from './components/AdvancedMode'
 import ResultPanel from './components/ResultPanel'
 import LogDrawer from './components/LogDrawer'
+import SettingsDialog from './components/SettingsDialog'
 import { useAppStore } from './store'
 
 export default function App(): React.JSX.Element {
@@ -15,6 +16,7 @@ export default function App(): React.JSX.Element {
   const setMode = useAppStore((state) => state.setMode)
   const toast = useAppStore((state) => state.toast)
   const setToast = useAppStore((state) => state.setToast)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     void init()
@@ -32,6 +34,9 @@ export default function App(): React.JSX.Element {
         <h1>Shrinkly</h1>
         <span className="app-subtitle">视频压缩与格式转换</span>
         <FfmpegStatus />
+        <button type="button" className="ghost" onClick={() => setSettingsOpen(true)}>
+          设置
+        </button>
       </header>
 
       <main className="app-main">
@@ -56,6 +61,8 @@ export default function App(): React.JSX.Element {
       </main>
 
       <LogDrawer />
+
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
 
       {toast && (
         <div className={`toast ${toast.kind}`} onClick={() => setToast(null)}>
