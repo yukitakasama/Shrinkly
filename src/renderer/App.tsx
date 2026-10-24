@@ -4,6 +4,9 @@ import DropZone from './components/DropZone'
 import JobList from './components/JobList'
 import InfoPanel from './components/InfoPanel'
 import SimpleMode from './components/SimpleMode'
+import AdvancedMode from './components/AdvancedMode'
+import ResultPanel from './components/ResultPanel'
+import LogDrawer from './components/LogDrawer'
 import { useAppStore } from './store'
 
 export default function App(): React.JSX.Element {
@@ -47,9 +50,12 @@ export default function App(): React.JSX.Element {
             </button>
           </nav>
           <InfoPanel />
-          {mode === 'simple' ? <SimpleMode /> : <SimpleMode />}
+          <ResultPanel />
+          {mode === 'simple' ? <SimpleMode /> : <AdvancedMode />}
         </section>
       </main>
+
+      <LogDrawer />
 
       {toast && (
         <div className={`toast ${toast.kind}`} onClick={() => setToast(null)}>

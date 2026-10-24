@@ -38,6 +38,8 @@ export default function JobList(): React.JSX.Element {
   const removeJob = useAppStore((state) => state.removeJob)
   const moveJob = useAppStore((state) => state.moveJob)
   const clearFinished = useAppStore((state) => state.clearFinished)
+  const cancelAll = useAppStore((state) => state.cancelAll)
+  const startQueue = useAppStore((state) => state.startQueue)
 
   if (jobs.length === 0) {
     return <p className="empty-hint">队列为空，先拖入视频文件。</p>
@@ -47,9 +49,17 @@ export default function JobList(): React.JSX.Element {
     <div className="job-list">
       <div className="job-list-head">
         <span>{jobs.length} 个任务</span>
-        <button type="button" className="link" onClick={() => void clearFinished()}>
-          清除已结束
-        </button>
+        <span className="head-actions">
+          <button type="button" className="link" onClick={() => void startQueue()}>
+            全部开始
+          </button>
+          <button type="button" className="link danger" onClick={() => void cancelAll()}>
+            全部取消
+          </button>
+          <button type="button" className="link" onClick={() => void clearFinished()}>
+            清除已结束
+          </button>
+        </span>
       </div>
       <ul>
         {jobs.map((job) => {

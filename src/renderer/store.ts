@@ -14,9 +14,36 @@ import type {
   ValidationResult,
   VideoCodec
 } from '../shared/types'
+import { sanitizeExtraArgs } from '../shared/validation'
 import { buildJobSpec, deriveTargets } from './lib/spec'
 
 export type Mode = 'simple' | 'advanced'
+
+/** 高级模式的手动参数（null 表示按估算自动推导）。 */
+export interface AdvancedValues {
+  rateControl: 'crf' | 'abr' | 'pass2'
+  crf: number | null
+  bitrateKbps: number | null
+  width: number | null
+  height: number | null
+  frameRate: number | null
+  preset: string | null
+  profile: string | null
+  level: string | null
+  pixelFormat: string | null
+  gop: number | null
+  bframes: number | null
+  hwAccel: boolean
+  audioBitrateKbps: number | null
+  audioChannels: 0 | 1 | 2
+  audioSampleRate: number | null
+  outputDirectory: string | null
+  nameTemplate: string
+  conflict: 'ask' | 'rename' | 'overwrite' | 'skip'
+  keepMetadata: boolean
+  keepChapters: boolean
+  extraArgsText: string
+}
 
 export interface Toast {
   kind: 'info' | 'error' | 'success'
@@ -35,6 +62,7 @@ interface AppStore {
   videoCodec: VideoCodec
   audioCodec: AudioCodec
   audioMode: AudioMode
+  advanced: AdvancedValues | null
   estimate: EstimateResult | null
   validation: ValidationResult | null
   command: string
@@ -54,6 +82,9 @@ interface AppStore {
   setVideoCodec: (codec: VideoCodec) => void
   setAudioCodec: (codec: AudioCodec) => void
   setAudioMode: (mode: AudioMode) => void
+  setAdvanced: (patch: Partial<AdvancedValues>) => void
+  resetAdvanced: () => void
+  pickOutputDirectory: () => Promise<void>
   importPaths: (paths: string[]) => Promise<void>
   refreshEditor: () => Promise<void>
   startQueue: () => Promise<void>
@@ -96,6 +127,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   videoCodec: 'h264',
   audioCodec: 'aac',
   audioMode: 'encode',
+  advanced: null,
   estimate: null,
   validation: null,
   command: '',
@@ -147,7 +179,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const currentId =
       get().selectedId && jobs.some((job) => job.id === get().selectedId) ? get().selectedId : (jobs[0]?.id ?? null)
     const job = jobs.find((item) => item.id === currentId) ?? null
-    set({ jobs, selectedId: currentId, ...editorFieldsFor(job) })
+    set({ jobs, selectedId: currentId, advanced: null, ...editorFieldsFor(job) })
     if (currentId) await get().refreshEditor()
   },
 
@@ -157,7 +189,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   selectJob(id) {
     const job = get().jobs.find((item) => item.id === id) ?? null
-    set({ selectedId: id, ...editorFieldsFor(job) })
+    set({ selectedId: id, advanced: null, ...editorFieldsFor(job) })
     void get().refreshEditor()
   },
 
@@ -193,6 +225,48 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setAudioMode(audioMode) {
     set({ audioMode })
     void get().refreshEditor()
+  },
+
+  setAdvanced(patch) {
+    const current = get().advanced
+    const base: AdvancedValues =
+      current ??
+      {
+        rateControl: get().estimate?.rateControl ?? 'crf',
+        crf: get().estimate?.crf ?? 24,
+        bitrateKbps: get().estimate ? Math.round(get().estimate!.videoBitrateKbps) : null,
+        width: get().estimate?.width ?? null,
+        height: get().estimate?.height ?? null,
+        frameRate: get().estimate?.frameRate ?? null,
+        preset: 'medium',
+        profile: null,
+        level: null,
+        pixelFormat: 'yuv420p',
+        gop: null,
+        bframes: null,
+        hwAccel: get().status?.settings.hwAccel ?? false,
+        audioBitrateKbps: get().estimate?.audioBitrateKbps ?? null,
+        audioChannels: 0,
+        audioSampleRate: get().estimate?.audioSampleRate ?? null,
+        outputDirectory: get().status?.settings.outputDirectory ?? null,
+        nameTemplate: get().status?.settings.nameTemplate ?? '{name}_compressed.{ext}',
+        conflict: get().status?.settings.defaultConflict ?? 'rename',
+        keepMetadata: true,
+        keepChapters: true,
+        extraArgsText: ''
+      }
+    set({ advanced: { ...base, ...patch } })
+    void get().refreshEditor()
+  },
+
+  resetAdvanced() {
+    set({ advanced: null })
+    void get().refreshEditor()
+  },
+
+  async pickOutputDirectory() {
+    const directory = await window.shrinkly.pickDirectory()
+    if (directory) get().setAdvanced({ outputDirectory: directory })
   },
 
   async importPaths(paths) {
@@ -284,15 +358,44 @@ export const useAppStore = create<AppStore>((set, get) => ({
         return
       }
 
+      const advanced = state.advanced
+      const extra = advanced?.extraArgsText ? sanitizeExtraArgs(advanced.extraArgsText).args : []
       const spec = buildJobSpec({
         media,
         estimate,
         audioMode,
         audioCodec,
-        outputDirectory: settings?.outputDirectory ?? null,
-        nameTemplate: settings?.nameTemplate ?? '{name}_compressed.{ext}',
-        conflict: settings?.defaultConflict ?? 'rename',
-        hwAccel: settings?.hwAccel ?? false
+        outputDirectory: advanced?.outputDirectory ?? settings?.outputDirectory ?? null,
+        nameTemplate: advanced?.nameTemplate ?? settings?.nameTemplate ?? '{name}_compressed.{ext}',
+        conflict: advanced?.conflict ?? settings?.defaultConflict ?? 'rename',
+        hwAccel: advanced?.hwAccel ?? settings?.hwAccel ?? false,
+        keepMetadata: advanced?.keepMetadata ?? true,
+        keepChapters: advanced?.keepChapters ?? true,
+        extraArgs: extra,
+        videoOverride: advanced
+          ? {
+              rateControl: advanced.rateControl,
+              crf: advanced.rateControl === 'crf' ? advanced.crf : null,
+              bitrateKbps: advanced.rateControl === 'crf' ? null : advanced.bitrateKbps,
+              width: advanced.width,
+              height: advanced.height,
+              frameRate: advanced.frameRate,
+              preset: advanced.preset,
+              profile: advanced.profile,
+              level: advanced.level,
+              pixelFormat: advanced.pixelFormat,
+              gop: advanced.gop,
+              bframes: advanced.bframes,
+              hwAccel: advanced.hwAccel
+            }
+          : undefined,
+        audioOverride: advanced
+          ? {
+              bitrateKbps: audioMode === 'encode' ? advanced.audioBitrateKbps : null,
+              channels: advanced.audioChannels,
+              sampleRate: audioMode === 'encode' ? advanced.audioSampleRate : null
+            }
+          : undefined
       })
 
       const validation = await window.shrinkly.validate({

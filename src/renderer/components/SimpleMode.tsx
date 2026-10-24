@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { QUALITY_STOPS, qualityLabel } from '../../shared/presets'
+import CommandBlock from './CommandBlock'
 import { selectedJob, useAppStore } from '../store'
 import { formatBitrate, formatBytes, formatFps, formatPercent, formatRatio } from '../lib/format'
 
@@ -14,11 +15,9 @@ export default function SimpleMode(): React.JSX.Element {
   const targetMB = useAppStore((state) => state.targetMB)
   const estimate = useAppStore((state) => state.estimate)
   const validation = useAppStore((state) => state.validation)
-  const command = useAppStore((state) => state.command)
   const setQuality = useAppStore((state) => state.setQuality)
   const setTarget = useAppStore((state) => state.setTarget)
   const startQueue = useAppStore((state) => state.startQueue)
-  const setToast = useAppStore((state) => state.setToast)
 
   const ffmpegOk = useAppStore((state) => state.status?.ffmpeg.state === 'ok')
   const hasJob = Boolean(job?.media)
@@ -36,15 +35,6 @@ export default function SimpleMode(): React.JSX.Element {
     },
     [quality, setQuality]
   )
-
-  const copyCommand = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(command)
-      setToast({ kind: 'success', message: '命令已复制到剪贴板' })
-    } catch {
-      setToast({ kind: 'error', message: '复制失败，请手动选择命令文本' })
-    }
-  }
 
   return (
     <section className="card simple-mode">
@@ -162,22 +152,7 @@ export default function SimpleMode(): React.JSX.Element {
         </ul>
       )}
 
-      <details className="command-block">
-        <summary>
-          将执行 <span className="muted">（只读，可复制）</span>
-          <button
-            type="button"
-            className="link"
-            onClick={(event) => {
-              event.preventDefault()
-              void copyCommand()
-            }}
-          >
-            复制
-          </button>
-        </summary>
-        <pre>{command || '选择任务后显示命令'}</pre>
-      </details>
+      <CommandBlock />
 
       <div className="actions">
         <button
