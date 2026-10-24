@@ -1,0 +1,42 @@
+{
+  "name": "shrinkly",
+  "version": "0.1.0",
+  "description": "Shrinkly — 基于 FFmpeg 的视频转换与压缩工具",
+  "main": "./out/main/index.js",
+  "license": "MIT",
+  "private": true,
+  "author": "Shrinkly",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "electron-vite build",
+    "typecheck:node": "tsc --noEmit --composite false -p tsconfig.node.json",
+    "typecheck:web": "tsc --noEmit --composite false -p tsconfig.web.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "node tests/integration/run.mjs",
+    "build:win": "npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "zod": "^3.25.76",
+    "zustand": "^5.0.16"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.4.5",
+    "vitest": "^2.1.9"
+  }
+}
