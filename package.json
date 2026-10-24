@@ -19,7 +19,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "node tests/integration/run.mjs",
-    "build:win": "npm run build && electron-builder --win"
+    "build:win": "npm run build && electron-builder --win --publish never",
+    "build:win:iconed": "npm run build && electron-builder --win --publish never -c.win.signAndEditExecutable=true"
   },
   "dependencies": {
     "zod": "^3.25.76",
