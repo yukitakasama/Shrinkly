@@ -10,7 +10,7 @@ import {
   sanitizeFileName,
   splitExtension,
   temporaryPath
-} from '../../src/main/fs/paths'
+} from '../../src/server/fs/paths'
 
 const created: string[] = []
 

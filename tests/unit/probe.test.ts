@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { parseFrameRate, parseProbeJson } from '../../src/main/ffmpeg/probe'
-import type { FfprobeJson } from '../../src/main/ffmpeg/probe'
+import { parseFrameRate, parseProbeJson } from '../../src/server/ffmpeg/probe'
+import type { FfprobeJson } from '../../src/server/ffmpeg/probe'
 
 const baseJson: FfprobeJson = {
   streams: [

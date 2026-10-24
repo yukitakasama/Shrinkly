@@ -4,8 +4,8 @@ import {
   parseEncoderList,
   parseHwaccelList,
   pickHardwareEncoder
-} from '../../src/main/ffmpeg/capabilities'
-import { parseVersion } from '../../src/main/ffmpeg/locator'
+} from '../../src/server/ffmpeg/capabilities'
+import { parseVersion } from '../../src/server/ffmpeg/locator'
 
 const ENCODERS_OUTPUT = `Encoders:
  V..... = Video

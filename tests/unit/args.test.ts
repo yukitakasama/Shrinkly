@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildFfmpegArgs, formatCommandForDisplay } from '../../src/main/ffmpeg/args'
+import { buildFfmpegArgs, formatCommandForDisplay } from '../../src/server/ffmpeg/args'
 import type { JobSpec } from '../../src/shared/types'
 import { makeSpec } from './fixtures'
 
